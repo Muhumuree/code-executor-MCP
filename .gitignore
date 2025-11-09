@@ -35,3 +35,12 @@ audit.log
 # MCP config (may contain secrets)
 .mcp.json
 .code-executor.json
+
+# Internal documentation (not for public repo)
+CLAUDE.md
+*_TASKS_*.md
+*_TEST*.md
+*_TESTS_*.md
+CODE_REVIEW*.md
+DOCKER_TESTING.md
+*.md.backup
