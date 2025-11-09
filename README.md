@@ -639,4 +639,4 @@ Found a security vulnerability? See [SECURITY.md](SECURITY.md) for responsible d
 
 ---
 
-**Made with ❤️ for the MCP community** | **98% token savings** | **Production-ready security** | **105 tests passing**
+**Made with ❤️ for anyone really. this has always been a pain point. i am sure that anthropic will release an official something for this, until then, hope this helps.
