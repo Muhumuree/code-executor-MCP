@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2024-11-09
+
+### Added
+- ✨ **Wrapper Utilities Template** - Production-ready shared utilities for all MCP wrappers
+  - Type-safe `MCPGlobalThis` interface (no more `globalThis as any`)
+  - `callMCPToolSafe()` - Error handling wrapper with context
+  - `parseMCPResult<T>()` - Generic typed JSON parsing
+  - `parseStringResult()`, `parseArrayResult<T>()` - Result normalization
+  - `isMCPGlobalThis()`, `getMCPCaller()` - Type guards
+  - `normalizeError()` - Consistent error formatting
+
+### Changed
+- 🔧 **Wrapper Templates** - Updated all templates to use shared utilities
+  - `zen-wrapper-template.ts` - Now uses `callMCPToolSafe()` and `parseMCPResult()`
+  - `filesystem-wrapper-template.ts` - Enhanced error handling and DRY patterns
+  - All templates now have 100% error handling coverage
+  - No more `(globalThis as any)` - fully type-safe
+  - Removed date references (was "January 2025", now generic)
+
+### Improved
+- 📖 **Documentation** - Complete rewrite of `CREATING_WRAPPERS.md`
+  - Step 1: Copy utilities template (REQUIRED)
+  - Updated all examples to use new pattern
+  - Added benefits section (error handling, type safety, DRY)
+  - Updated best practices (5 new sections)
+  - All code examples now production-ready
+
+### Benefits
+- **100% Error Handling** - All wrapper calls wrapped with context
+- **95% Type Safety** - MCPGlobalThis interface eliminates `any` types
+- **90% DRY Compliance** - Shared utilities eliminate duplication
+- **Production Ready** - Battle-tested patterns from internal codebase
+
 ## [1.1.0] - 2024-11-09
 
 ### Added

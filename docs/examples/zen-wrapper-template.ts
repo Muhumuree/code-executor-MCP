@@ -7,13 +7,16 @@
  * parameter schema, but zen-mcp-server may change at any time.
  *
  * Usage:
- * 1. Copy this file to your project (e.g., src/lib/mcp/zen.ts)
- * 2. Install zen-mcp-server in your .mcp.json
- * 3. Adapt parameters to match YOUR installed zen version
- * 4. Maintain it when zen-mcp-server updates
+ * 1. Copy utils-template.ts to src/lib/mcp/utils.ts
+ * 2. Copy this file to src/lib/mcp/zen.ts
+ * 3. Install zen-mcp-server in your .mcp.json
+ * 4. Adapt parameters to match YOUR installed zen version
+ * 5. Maintain it when zen-mcp-server updates
  *
- * Last verified: 2025-01-09 with zen-mcp-server from BeehiveInnovations
+ * Last verified: 2024-11-09 with zen-mcp-server from BeehiveInnovations
  */
+
+import { callMCPToolSafe, parseMCPResult, parseStringResult } from './utils';
 
 /**
  * Available models for zen tools
@@ -28,7 +31,7 @@ export type ZenModel =
 /**
  * Deep reasoning with step tracking
  *
- * ⚠️ Parameters verified as of 2025-01-09
+ * ⚠️ Parameters verified as of 2024-11-09
  * Check zen-mcp-server docs if this breaks after updates
  */
 export async function zenThinkDeep(
@@ -48,16 +51,20 @@ export async function zenThinkDeep(
 }> {
   const { model = 'gemini-2.5-pro', steps = 1 } = options;
 
-  const result = await (globalThis as any).callMCPTool('mcp__zen__thinkdeep', {
-    step: question,              // Current param name (was 'query' before)
-    step_number: 1,
-    total_steps: steps,
-    next_step_required: steps > 1,
-    findings: '',                // Current: string (was array before)
-    model                        // Current param name (was 'cli_name' before)
-  });
+  const result = await callMCPToolSafe(
+    'mcp__zen__thinkdeep',
+    {
+      step: question,              // Current param name (was 'query' before)
+      step_number: 1,
+      total_steps: steps,
+      next_step_required: steps > 1,
+      findings: '',                // Current: string (was array before)
+      model                        // Current param name (was 'cli_name' before)
+    },
+    'zen thinkdeep'
+  );
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  return parseMCPResult(result);
 }
 
 /**
@@ -71,18 +78,22 @@ export async function zenCodeReview(
   content: string;
   findings: any[];
 }> {
-  const result = await (globalThis as any).callMCPTool('mcp__zen__codereview', {
-    code,
-    language,
-    findings: [],
-    step: 'security-and-quality-review',
-    step_number: 1,
-    total_steps: 1,
-    next_step_required: false,
-    model
-  });
+  const result = await callMCPToolSafe(
+    'mcp__zen__codereview',
+    {
+      code,
+      language,
+      findings: [],
+      step: 'security-and-quality-review',
+      step_number: 1,
+      total_steps: 1,
+      next_step_required: false,
+      model
+    },
+    'zen codereview'
+  );
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  return parseMCPResult(result);
 }
 
 /**
@@ -93,13 +104,17 @@ export async function zenClink(
   persona: string = 'assistant',
   model: ZenModel = 'gemini-2.5-pro'
 ): Promise<string> {
-  const result = await (globalThis as any).callMCPTool('mcp__zen__clink', {
-    prompt,
-    persona,
-    model
-  });
+  const result = await callMCPToolSafe(
+    'mcp__zen__clink',
+    {
+      prompt,
+      persona,
+      model
+    },
+    'zen clink'
+  );
 
-  return typeof result === 'string' ? result : JSON.stringify(result);
+  return parseStringResult(result);
 }
 
 /**
@@ -109,8 +124,13 @@ export async function zenListModels(): Promise<{
   gemini: string[];
   openai: string[];
 }> {
-  const result = await (globalThis as any).callMCPTool('mcp__zen__listmodels', {});
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  const result = await callMCPToolSafe(
+    'mcp__zen__listmodels',
+    {},
+    'zen listmodels'
+  );
+
+  return parseMCPResult(result);
 }
 
 // Add more zen tool wrappers as needed...

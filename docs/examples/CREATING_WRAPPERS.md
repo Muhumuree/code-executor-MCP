@@ -6,7 +6,7 @@
 
 **MCP servers update independently.** Their APIs can change at any time without warning.
 
-**Real example from Jan 2025:**
+**Real example:**
 - Zen MCP changed from `cli_name` → `model`
 - Changed from `query` → `step`
 - Changed from `findings: []` → `findings: ''`
@@ -18,7 +18,20 @@
 
 ## Quick Start (5 Minutes)
 
-### 1. Copy Template
+### 1. Copy Utilities Template (REQUIRED)
+
+```bash
+# First, copy the shared utilities
+cp docs/examples/utils-template.ts src/lib/mcp/utils.ts
+```
+
+**Why?** The utilities provide:
+- ✅ Error handling with context
+- ✅ Type-safe globalThis interface
+- ✅ DRY-compliant JSON parsing
+- ✅ Consistent error messages
+
+### 2. Copy Wrapper Template
 
 Choose a template from this directory:
 - `zen-wrapper-template.ts` - AI analysis tools
@@ -29,24 +42,30 @@ Choose a template from this directory:
 cp docs/examples/zen-wrapper-template.ts src/lib/mcp/zen.ts
 ```
 
-### 2. Adapt to Your Environment
+### 3. Adapt to Your Environment
 
 ```typescript
 // src/lib/mcp/zen.ts
 // You own this file now - update params when zen updates
 
-export async function zenThinkDeep(question: string) {
-  const result = await callMCPTool('mcp__zen__thinkdeep', {
-    // Update these params to match YOUR zen version
-    step: question,
-    step_number: 1,
-    total_steps: 1,
-    next_step_required: false,
-    findings: '',
-    model: 'gemini-2.5-pro'
-  });
+import { callMCPToolSafe, parseMCPResult } from './utils';
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+export async function zenThinkDeep(question: string) {
+  const result = await callMCPToolSafe(
+    'mcp__zen__thinkdeep',
+    {
+      // Update these params to match YOUR zen version
+      step: question,
+      step_number: 1,
+      total_steps: 1,
+      next_step_required: false,
+      findings: '',
+      model: 'gemini-2.5-pro'
+    },
+    'zen thinkdeep'  // Context for error messages
+  );
+
+  return parseMCPResult(result);
 }
 ```
 
@@ -63,28 +82,41 @@ console.log(analysis.content);
 
 ## Creating Your Own Wrappers
 
-### Pattern
+### Pattern (Improved with Error Handling)
 
 **Every MCP tool wrapper follows this pattern:**
 
 ```typescript
+import { callMCPToolSafe, parseMCPResult } from './utils';
+
 export async function toolName(
   param1: string,
   param2?: number
 ): Promise<ReturnType> {
-  const result = await (globalThis as any).callMCPTool('mcp__server__tool', {
-    param1,
-    ...(param2 && { param2 })
-  });
+  const result = await callMCPToolSafe(
+    'mcp__server__tool',
+    {
+      param1,
+      ...(param2 && { param2 })
+    },
+    'server tool'  // Context for error messages
+  );
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  return parseMCPResult<ReturnType>(result);
 }
 ```
+
+**Benefits:**
+- ✅ **Error handling** - Clear error messages with context
+- ✅ **Type safety** - No `(globalThis as any)`
+- ✅ **DRY** - Shared JSON parsing logic
+- ✅ **Maintainability** - Update utilities, all wrappers benefit
 
 ### Example: Linear MCP
 
 ```typescript
 // src/lib/mcp/linear.ts
+import { callMCPToolSafe, parseMCPResult } from './utils';
 
 /**
  * Create Linear issue
@@ -98,13 +130,17 @@ export async function linearCreateIssue(
   url: string;
   identifier: string;
 }> {
-  const result = await (globalThis as any).callMCPTool('mcp__linear__create_issue', {
-    title,
-    description,
-    ...(teamId && { teamId })
-  });
+  const result = await callMCPToolSafe(
+    'mcp__linear__create_issue',
+    {
+      title,
+      description,
+      ...(teamId && { teamId })
+    },
+    'linear create_issue'
+  );
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  return parseMCPResult(result);
 }
 
 /**
@@ -118,11 +154,13 @@ export async function linearListIssues(filters?: {
   title: string;
   url: string;
 }>> {
-  const result = await (globalThis as any).callMCPTool('mcp__linear__list_issues', {
-    ...filters
-  });
+  const result = await callMCPToolSafe(
+    'mcp__linear__list_issues',
+    { ...filters },
+    'linear list_issues'
+  );
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  return parseMCPResult(result);
 }
 ```
 
@@ -143,14 +181,13 @@ export async function githubCreateIssue(
   number: number;
   url: string;
 }> {
-  const result = await (globalThis as any).callMCPTool('mcp__github__create_issue', {
-    owner,
-    repo,
-    title,
-    body
-  });
+  const result = await callMCPToolSafe(
+    'mcp__github__create_issue',
+    { owner, repo, title, body },
+    'github create_issue'
+  );
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  return parseMCPResult(result);
 }
 
 /**
@@ -166,15 +203,13 @@ export async function githubCreatePR(
   number: number;
   url: string;
 }> {
-  const result = await (globalThis as any).callMCPTool('mcp__github__create_pull_request', {
-    owner,
-    repo,
-    title,
-    head,
-    base
-  });
+  const result = await callMCPToolSafe(
+    'mcp__github__create_pull_request',
+    { owner, repo, title, head, base },
+    'github create_pull_request'
+  );
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  return parseMCPResult(result);
 }
 ```
 
@@ -199,17 +234,26 @@ export async function createTask(title, priority) {
 }
 ```
 
-### 2. Handle JSON Parsing
+### 2. Use Shared Utilities
 
 ```typescript
-// Always handle string responses
-const result = await callMCPTool('mcp__tool__name', params);
-return typeof result === 'string' ? JSON.parse(result) : result;
+import { callMCPToolSafe, parseMCPResult } from './utils';
+
+// Let utilities handle error wrapping and JSON parsing
+const result = await callMCPToolSafe('mcp__tool__name', params, 'tool description');
+return parseMCPResult<YourType>(result);
 ```
+
+**Benefits:**
+- Automatic error handling with context
+- Type-safe (no `globalThis as any`)
+- DRY - all parsing logic in one place
 
 ### 3. Optional Parameters
 
 ```typescript
+import { callMCPToolSafe, parseMCPResult } from './utils';
+
 export async function createTask(
   title: string,
   options?: {
@@ -217,13 +261,17 @@ export async function createTask(
     tags?: string[];
   }
 ): Promise<{ id: string }> {
-  const result = await callMCPTool('mcp__tasks__create', {
-    title,
-    ...(options?.priority && { priority: options.priority }),
-    ...(options?.tags && { tags: options.tags })
-  });
+  const result = await callMCPToolSafe(
+    'mcp__tasks__create',
+    {
+      title,
+      ...(options?.priority && { priority: options.priority }),
+      ...(options?.tags && { tags: options.tags })
+    },
+    'tasks create'
+  );
 
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  return parseMCPResult(result);
 }
 ```
 
@@ -249,24 +297,30 @@ export async function createTask(
 }
 ```
 
-### 5. Error Handling
+### 5. Error Handling (Automatic with Utilities)
 
 ```typescript
+import { callMCPToolSafe, parseMCPResult } from './utils';
+
+// callMCPToolSafe handles errors automatically with context
 export async function createIssue(title: string): Promise<{ id: string }> {
-  try {
-    const result = await callMCPTool('mcp__linear__create_issue', {
-      title
-    });
-    return typeof result === 'string' ? JSON.parse(result) : result;
-  } catch (error) {
-    throw new Error(
-      `Failed to create Linear issue: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-  }
+  const result = await callMCPToolSafe(
+    'mcp__linear__create_issue',
+    { title },
+    'linear create_issue'  // This context appears in error messages
+  );
+
+  return parseMCPResult(result);
 }
+
+// If it fails, users get: "Failed to call linear create_issue: [actual error]"
+// No manual try-catch needed unless you want custom handling
 ```
+
+**Benefits:**
+- Automatic error wrapping with context
+- Consistent error format across all wrappers
+- Less boilerplate code
 
 ---
 
@@ -317,6 +371,7 @@ your-project/
 ├── src/
 │   └── lib/
 │       └── mcp/
+│           ├── utils.ts         # Shared utilities (REQUIRED)
 │           ├── zen.ts           # Zen AI tools
 │           ├── filesystem.ts    # File operations
 │           ├── linear.ts        # Linear integration
@@ -330,16 +385,14 @@ your-project/
 ```typescript
 // src/lib/mcp/index.ts
 
+// Export utilities
+export * from './utils';
+
 // Export all wrappers
 export * from './zen';
 export * from './filesystem';
 export * from './linear';
 export * from './github';
-
-// Helper to check if MCP is available
-export function isMCPAvailable(): boolean {
-  return typeof (globalThis as any).callMCPTool === 'function';
-}
 ```
 
 ### Usage
@@ -376,12 +429,18 @@ const pr = await githubCreatePR('owner', 'repo', 'Title', 'feature', 'main');
 // zen-mcp-server v2.0.0 changes 'step' to 'question'
 
 // Update your wrapper:
+import { callMCPToolSafe, parseMCPResult } from './utils';
+
 export async function zenThinkDeep(question: string) {
-  const result = await callMCPTool('mcp__zen__thinkdeep', {
-    question,  // Changed from 'step'
-    // ... other params
-  });
-  return result;
+  const result = await callMCPToolSafe(
+    'mcp__zen__thinkdeep',
+    {
+      question,  // Changed from 'step'
+      // ... other params
+    },
+    'zen thinkdeep'
+  );
+  return parseMCPResult(result);
 }
 ```
 
@@ -422,21 +481,28 @@ describe('Zen MCP Wrappers', () => {
 
 **src/lib/mcp/zen.ts:**
 ```typescript
+import { callMCPToolSafe, parseMCPResult } from './utils';
+
 export type ZenModel = 'gemini-2.5-pro' | 'gemini-2.5-flash' | 'o3-pro';
 
 export async function zenThinkDeep(
   question: string,
   model: ZenModel = 'gemini-2.5-pro'
 ): Promise<{ content: string }> {
-  const result = await (globalThis as any).callMCPTool('mcp__zen__thinkdeep', {
-    step: question,
-    step_number: 1,
-    total_steps: 1,
-    next_step_required: false,
-    findings: '',
-    model
-  });
-  return typeof result === 'string' ? JSON.parse(result) : result;
+  const result = await callMCPToolSafe(
+    'mcp__zen__thinkdeep',
+    {
+      step: question,
+      step_number: 1,
+      total_steps: 1,
+      next_step_required: false,
+      findings: '',
+      model
+    },
+    'zen thinkdeep'
+  );
+
+  return parseMCPResult(result);
 }
 ```
 
