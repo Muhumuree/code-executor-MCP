@@ -96,6 +96,7 @@ export class MCPProxyServer {
             params: unknown;
           };
 
+
           // Validate against allowlist
           if (!this.validator.isAllowed(toolName)) {
             const allowedTools = this.validator.getAllowedTools();
@@ -177,6 +178,7 @@ export class MCPProxyServer {
   getToolCalls(): string[] {
     return this.tracker.getCalls();
   }
+
 
   /**
    * Validate bearer token using constant-time comparison

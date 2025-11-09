@@ -12,6 +12,7 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "server": "npm run build && node dist/index.js",
+    "generate-wrappers": "npm run build && node dist/wrapper-generator.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

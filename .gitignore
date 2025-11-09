@@ -36,6 +36,10 @@ audit.log
 .mcp.json
 .code-executor.json
 
+# Auto-generated wrappers (user-specific, not committed)
+wrappers/
+.code-executor-wrappers/
+
 # Internal documentation (not for public repo)
 CLAUDE.md
 *_TASKS_*.md

@@ -7,13 +7,85 @@
 
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
+import * as path from 'path';
 import * as crypto from 'crypto';
+import { homedir } from 'os';
 import { getDenoPath } from './config.js';
 import { sanitizeOutput, truncateOutput, formatDuration, normalizeError } from './utils.js';
 import { MCPProxyServer } from './mcp-proxy-server.js';
 import { StreamingProxy } from './streaming-proxy.js';
 import type { ExecutionResult, SandboxOptions } from './types.js';
 import type { MCPClientPool } from './mcp-client-pool.js';
+
+const WRAPPERS_DIR = path.join(homedir(), '.code-executor', 'wrappers');
+
+/**
+ * Load wrapper code for allowed MCP tools
+ */
+async function loadWrappers(allowedTools: string[]): Promise<string> {
+  console.log('[DEBUG] loadWrappers called with:', allowedTools);
+
+  try {
+    // Check if wrappers directory exists
+    await fs.access(WRAPPERS_DIR);
+    console.log('[DEBUG] Wrappers directory exists:', WRAPPERS_DIR);
+  } catch {
+    // No wrappers generated yet
+    console.log('[DEBUG] Wrappers directory not found');
+    return '';
+  }
+
+  const wrapperCode: string[] = [];
+
+  // Extract server names from allowed tools (mcp__<server>__<tool>)
+  const servers = new Set<string>();
+  for (const tool of allowedTools) {
+    const match = tool.match(/^mcp__([^_]+)__/);
+    if (match && match[1]) {
+      servers.add(match[1]);
+    }
+  }
+  console.log('[DEBUG] Extracted servers:', Array.from(servers));
+
+  // Load wrapper files for each server
+  for (const server of servers) {
+    const wrapperFile = path.join(WRAPPERS_DIR, `${server}.ts`);
+
+    try {
+      const content = await fs.readFile(wrapperFile, 'utf-8');
+
+      // Extract only the function implementations (strip comments and exports)
+      let functionCode = content
+        .replace(/\/\*\*[\s\S]*?\*\//g, '') // Remove JSDoc comments
+        .replace(/^export\s+/gm, '') // Remove export keywords
+        .replace(/^declare\s+global[\s\S]*?^}/gm, '') // Remove global declarations
+        .trim();
+
+      // Remove export default block at the end
+      functionCode = functionCode.replace(/\/\/ Export all wrappers[\s\S]*$/g, '');
+
+      // Convert function declarations to globalThis assignments
+      functionCode = functionCode.replace(
+        /^(async )?function (\w+)/gm,
+        'globalThis.$2 = $1function'
+      );
+
+      if (functionCode) {
+        wrapperCode.push(`// Wrappers for ${server}`);
+        wrapperCode.push(functionCode);
+        console.log(`[DEBUG] Loaded wrapper for ${server}, length:`, functionCode.length);
+      }
+    } catch (error) {
+      // Wrapper file doesn't exist for this server - skip silently
+      console.log(`[DEBUG] Failed to load wrapper for ${server}:`, error);
+      continue;
+    }
+  }
+
+  const result = wrapperCode.length > 0 ? '\n' + wrapperCode.join('\n\n') + '\n' : '';
+  console.log('[DEBUG] Total wrapper code length:', result.length);
+  return result;
+}
 
 /**
  * Execute TypeScript code in Deno sandbox with MCP access
@@ -84,7 +156,16 @@ export async function executeTypescriptInSandbox(
       );
     }
 
-    // Create wrapper code that injects callMCPTool() and imports user code
+    // Load MCP tool wrappers for allowed tools
+    const wrappers = await loadWrappers(options.allowedTools || []);
+
+    // DEBUG: Write wrappers to file for inspection
+    await fs.writeFile('/tmp/debug-wrappers.txt',
+      `Wrappers length: ${wrappers.length}\nAllowedTools: ${JSON.stringify(options.allowedTools)}\n\n${wrappers}`,
+      'utf-8'
+    );
+
+    // Create wrapper code that injects callMCPTool() + state functions + MCP wrappers and imports user code
     const wrappedCode = `
 // Injected callMCPTool function with authentication
 globalThis.callMCPTool = async (toolName: string, params: unknown) => {
@@ -106,6 +187,7 @@ globalThis.callMCPTool = async (toolName: string, params: unknown) => {
   return result.result;
 };
 
+${wrappers}
 // Import and execute user code from temp file
 await import('file://${userCodeFile}');
 `;
