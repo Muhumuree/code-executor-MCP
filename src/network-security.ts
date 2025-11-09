@@ -49,6 +49,114 @@ const BLOCKED_IP_PATTERNS = {
 } as const;
 
 /**
+ * Normalize alternative IP encodings to standard dotted-decimal format
+ *
+ * SECURITY: Prevents SSRF bypass via decimal/octal/hex IP encodings
+ *
+ * @param host - IP address that may use alternative encoding
+ * @returns Normalized IP address in standard dotted-decimal format
+ *
+ * @example
+ * normalizeIPEncoding('2130706433') // '127.0.0.1' (decimal)
+ * normalizeIPEncoding('0177.0.0.1') // '127.0.0.1' (octal)
+ * normalizeIPEncoding('0x7f.0.0.1') // '127.0.0.1' (hex)
+ * normalizeIPEncoding('0x7f000001') // '127.0.0.1' (full hex)
+ * normalizeIPEncoding('127.1') // '127.0.0.1' (shorthand)
+ * normalizeIPEncoding('google.com') // 'google.com' (unchanged)
+ */
+function normalizeIPEncoding(host: string): string {
+  // Decimal IP (e.g., 2130706433 = 127.0.0.1)
+  // Must be 8-10 digits to avoid matching ports or other numbers
+  if (/^\d{8,10}$/.test(host)) {
+    const num = parseInt(host, 10);
+    // Validate it's in valid IP range (0 to 4294967295)
+    if (num >= 0 && num <= 0xFFFFFFFF) {
+      return `${(num >>> 24) & 0xFF}.${(num >>> 16) & 0xFF}.${(num >>> 8) & 0xFF}.${num & 0xFF}`;
+    }
+  }
+
+  // Full hex IP (e.g., 0x7f000001 = 127.0.0.1)
+  if (/^0x[0-9a-f]{6,8}$/i.test(host)) {
+    const num = parseInt(host, 16);
+    if (num >= 0 && num <= 0xFFFFFFFF) {
+      return `${(num >>> 24) & 0xFF}.${(num >>> 16) & 0xFF}.${(num >>> 8) & 0xFF}.${num & 0xFF}`;
+    }
+  }
+
+  // Dotted notation with octal (e.g., 0177.0.0.1 = 127.0.0.1)
+  if (/^0[0-7]/.test(host) && host.includes('.')) {
+    try {
+      const parts = host.split('.');
+      const normalized = parts.map(octet => {
+        // Octal notation starts with 0
+        if (octet.startsWith('0') && octet.length > 1 && /^[0-7]+$/.test(octet.substring(1))) {
+          return String(parseInt(octet, 8));
+        }
+        return octet;
+      });
+      return normalized.join('.');
+    } catch {
+      return host;
+    }
+  }
+
+  // Dotted notation with hex (e.g., 0x7f.0.0.1 = 127.0.0.1)
+  if (/^0x[0-9a-f]/i.test(host) && host.includes('.')) {
+    try {
+      const parts = host.split('.');
+      const normalized = parts.map(octet => {
+        if (octet.toLowerCase().startsWith('0x')) {
+          return String(parseInt(octet, 16));
+        }
+        return octet;
+      });
+      return normalized.join('.');
+    } catch {
+      return host;
+    }
+  }
+
+  // Shorthand notation (e.g., 127.1 = 127.0.0.1)
+  // Only process if it looks like an IP (starts with digit, has dot, ends with digit)
+  if (/^\d+\./.test(host) && /\.\d+$/.test(host)) {
+    const parts = host.split('.');
+    // Shorthand IPs have 1-3 parts (e.g., "127.1", "10.1", "192.168.1")
+    if (parts.length > 0 && parts.length < 4) {
+      try {
+        const octets: number[] = [];
+        for (let i = 0; i < parts.length - 1; i++) {
+          octets.push(parseInt(parts[i]!, 10));
+        }
+        // Last part represents remaining bytes
+        const lastNum = parseInt(parts[parts.length - 1]!, 10);
+        const remainingBytes = 4 - octets.length;
+
+        if (remainingBytes === 3) {
+          // e.g., "127.1" -> "127.0.0.1"
+          octets.push((lastNum >>> 16) & 0xFF);
+          octets.push((lastNum >>> 8) & 0xFF);
+          octets.push(lastNum & 0xFF);
+        } else if (remainingBytes === 2) {
+          // e.g., "192.168.1" -> "192.168.0.1"
+          octets.push((lastNum >>> 8) & 0xFF);
+          octets.push(lastNum & 0xFF);
+        } else if (remainingBytes === 1) {
+          octets.push(lastNum & 0xFF);
+        }
+
+        if (octets.length === 4 && octets.every(o => o >= 0 && o <= 255)) {
+          return octets.join('.');
+        }
+      } catch {
+        return host;
+      }
+    }
+  }
+
+  return host;
+}
+
+/**
  * Check if a hostname or IP address is blocked for security reasons
  *
  * @param host - Hostname or IP address to check
@@ -57,6 +165,9 @@ const BLOCKED_IP_PATTERNS = {
  * @example
  * isBlockedHost('localhost') // true - blocked
  * isBlockedHost('127.0.0.1') // true - blocked
+ * isBlockedHost('2130706433') // true - blocked (decimal encoding)
+ * isBlockedHost('0177.0.0.1') // true - blocked (octal encoding)
+ * isBlockedHost('0x7f.0.0.1') // true - blocked (hex encoding)
  * isBlockedHost('10.0.0.1') // true - blocked (private network)
  * isBlockedHost('169.254.169.254') // true - blocked (AWS metadata)
  * isBlockedHost('::1') // true - blocked (IPv6 localhost)
@@ -78,6 +189,10 @@ export function isBlockedHost(host: string): boolean {
   } else {
     // IPv4 or hostname - remove port if present
     hostname = host.split(':')[0] ?? host;
+
+    // SECURITY: Normalize alternative IP encodings (decimal/octal/hex)
+    // This prevents SSRF bypass via encoded IPs
+    hostname = normalizeIPEncoding(hostname);
   }
 
   // Check all blocked patterns
@@ -148,11 +263,15 @@ function isBlockedIPv6(ip: string): boolean {
 
   // ::ffff:0:0/96 - IPv4-mapped IPv6
   if (lower.startsWith('::ffff:')) {
-    // Extract IPv4 part and check if it's private
+    // Extract IPv4 part and check against ALL blocked patterns
     const ipv4Part = lower.substring(7);
-    // Check if IPv4 part matches private patterns
-    return BLOCKED_IP_PATTERNS.privateNetworks.some(p => p.test(ipv4Part)) ||
-           BLOCKED_IP_PATTERNS.localhost.some(p => p.test(ipv4Part));
+    // Normalize the IPv4 part (in case it uses decimal/octal/hex encoding)
+    const normalizedIPv4 = normalizeIPEncoding(ipv4Part);
+    // Check if IPv4 part matches ANY blocked patterns
+    return BLOCKED_IP_PATTERNS.localhost.some(p => p.test(normalizedIPv4)) ||
+           BLOCKED_IP_PATTERNS.privateNetworks.some(p => p.test(normalizedIPv4)) ||
+           BLOCKED_IP_PATTERNS.linkLocal.some(p => p.test(normalizedIPv4)) ||
+           BLOCKED_IP_PATTERNS.cloudMetadata.some(p => p.test(normalizedIPv4));
   }
 
   // fe80::/10 - Link-local (already covered by pattern)

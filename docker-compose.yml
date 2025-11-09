@@ -43,7 +43,7 @@ services:
     # Writable tmp directories (required for code execution)
     tmpfs:
       - /tmp:mode=1777,size=100M,noexec,uid=1001,gid=1001  # 100MB temp space owned by codeexec
-      - /app/audit.log:mode=0644         # Audit log (append-only in practice)
+      - /app/audit.log:mode=0600         # Audit log (owner read/write only)
 
     # SECURITY: Drop all capabilities
     cap_drop:

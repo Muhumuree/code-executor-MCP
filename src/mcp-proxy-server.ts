@@ -74,9 +74,9 @@ export class MCPProxyServer {
           return;
         }
 
-        // SECURITY: Validate bearer token authentication
+        // SECURITY: Validate bearer token authentication (constant-time comparison)
         const authHeader = req.headers['authorization'];
-        if (authHeader !== `Bearer ${this.authToken}`) {
+        if (!this.validateBearerToken(authHeader)) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             error: 'Unauthorized - invalid or missing authentication token'
@@ -176,5 +176,48 @@ export class MCPProxyServer {
    */
   getToolCalls(): string[] {
     return this.tracker.getCalls();
+  }
+
+  /**
+   * Validate bearer token using constant-time comparison
+   *
+   * SECURITY: Prevents timing attacks that could be used to brute-force the token.
+   * Uses crypto.timingSafeEqual to ensure comparison takes constant time regardless
+   * of where strings differ.
+   *
+   * @param authHeader - Authorization header value (e.g., "Bearer <token>")
+   * @returns True if token is valid, false otherwise
+   */
+  private validateBearerToken(authHeader: string | undefined): boolean {
+    if (!authHeader) {
+      return false;
+    }
+
+    // Parse Bearer token
+    const parts = authHeader.split(' ');
+    if (parts.length !== 2 || parts[0] !== 'Bearer') {
+      return false;
+    }
+
+    const providedToken = parts[1];
+    if (!providedToken) {
+      return false;
+    }
+
+    // Constant-time comparison to prevent timing attacks
+    try {
+      const providedBuffer = Buffer.from(providedToken, 'utf8');
+      const validBuffer = Buffer.from(this.authToken, 'utf8');
+
+      // timingSafeEqual throws if lengths differ, so check length first
+      if (providedBuffer.length !== validBuffer.length) {
+        return false;
+      }
+
+      return crypto.timingSafeEqual(providedBuffer, validBuffer);
+    } catch {
+      // Any error (including length mismatch) returns false
+      return false;
+    }
   }
 }
