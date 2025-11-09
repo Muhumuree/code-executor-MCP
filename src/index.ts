@@ -12,11 +12,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { initConfig, isPythonEnabled } from './config.js';
+import { initConfig, isPythonEnabled, isRateLimitEnabled, getRateLimitConfig } from './config.js';
 import { ExecuteTypescriptInputSchema, ExecutePythonInputSchema } from './schemas.js';
 import { MCPClientPool } from './mcp-client-pool.js';
 import { SecurityValidator } from './security.js';
 import { ConnectionPool } from './connection-pool.js';
+import { RateLimiter } from './rate-limiter.js';
 import { executeTypescriptInSandbox } from './sandbox-executor.js';
 import { executePythonInSandbox } from './python-executor.js';
 import { formatErrorResponse } from './utils.js';
@@ -32,6 +33,7 @@ class CodeExecutorServer {
   private mcpClientPool: MCPClientPool;
   private securityValidator: SecurityValidator;
   private connectionPool: ConnectionPool;
+  private rateLimiter: RateLimiter | null = null;
 
   constructor() {
     // Initialize MCP server
@@ -44,6 +46,9 @@ class CodeExecutorServer {
     this.mcpClientPool = new MCPClientPool();
     this.securityValidator = new SecurityValidator();
     this.connectionPool = new ConnectionPool(100); // Max 100 concurrent executions
+
+    // Rate limiter will be initialized after config is loaded
+    this.rateLimiter = null;
 
     // Register tools
     this.registerTools();
@@ -61,6 +66,32 @@ class CodeExecutorServer {
       }],
       isError: true,
     };
+  }
+
+  /**
+   * Check rate limit before executing code
+   *
+   * Returns error response if rate limited, null otherwise.
+   */
+  private async checkRateLimit(): Promise<ReturnType<typeof this.handleToolError> | null> {
+    if (!this.rateLimiter) {
+      return null; // Rate limiting disabled
+    }
+
+    // Use 'default' as client ID since MCP servers run locally
+    // In a networked environment, this would be the client IP
+    const result = await this.rateLimiter.checkLimit('default');
+
+    if (!result.allowed) {
+      const error = new Error(
+        `Rate limit exceeded. Maximum ${getRateLimitConfig()?.maxRequests ?? 30} requests per ` +
+        `${(getRateLimitConfig()?.windowMs ?? 60000) / 1000}s. ` +
+        `Try again in ${Math.ceil(result.resetIn / 1000)}s.`
+      );
+      return this.handleToolError(error, ErrorType.VALIDATION);
+    }
+
+    return null;
   }
 
   /**
@@ -128,6 +159,12 @@ Example:
       },
       async (params) => {
         try {
+          // Check rate limit
+          const rateLimitError = await this.checkRateLimit();
+          if (rateLimitError) {
+            return rateLimitError;
+          }
+
           // Validate input with Zod schema (runtime validation)
           const parseResult = ExecuteTypescriptInputSchema.safeParse(params);
           if (!parseResult.success) {
@@ -182,11 +219,14 @@ Example:
           // Audit log
           await this.securityValidator.auditLog(
             {
+              executor: 'typescript',
               allowedTools: input.allowedTools,
               toolsCalled: result.toolCallsMade ?? [],
               executionTimeMs: result.executionTimeMs,
               success: result.success,
               error: result.error,
+              clientId: 'default', // MCP servers run locally
+              memoryUsage: process.memoryUsage().heapUsed,
             },
             input.code
           );
@@ -263,6 +303,12 @@ Example:
         },
         async (params) => {
           try {
+            // Check rate limit
+            const rateLimitError = await this.checkRateLimit();
+            if (rateLimitError) {
+              return rateLimitError;
+            }
+
             // Validate input with Zod schema
             const parseResult = ExecutePythonInputSchema.safeParse(params);
             if (!parseResult.success) {
@@ -317,11 +363,14 @@ Example:
             // Audit log
             await this.securityValidator.auditLog(
               {
+                executor: 'python',
                 allowedTools: input.allowedTools,
                 toolsCalled: result.toolCallsMade ?? [],
                 executionTimeMs: result.executionTimeMs,
                 success: result.success,
                 error: result.error,
+                clientId: 'default', // MCP servers run locally
+                memoryUsage: process.memoryUsage().heapUsed,
               },
               input.code
             );
@@ -405,6 +454,18 @@ Returns:
       console.error('Loading configuration...');
       await initConfig();
 
+      // Initialize rate limiter if enabled
+      if (isRateLimitEnabled()) {
+        const rateLimitConfig = getRateLimitConfig();
+        if (rateLimitConfig) {
+          this.rateLimiter = new RateLimiter({
+            maxRequests: rateLimitConfig.maxRequests,
+            windowMs: rateLimitConfig.windowMs,
+          });
+          console.error(`Rate limiting enabled: ${rateLimitConfig.maxRequests} requests per ${rateLimitConfig.windowMs / 1000}s`);
+        }
+      }
+
       // Initialize MCP client pool
       console.error('Initializing MCP client pool...');
       await this.mcpClientPool.initialize();
@@ -427,6 +488,12 @@ Returns:
    * Shutdown server
    */
   async shutdown(): Promise<void> {
+    // Clean up rate limiter
+    if (this.rateLimiter) {
+      this.rateLimiter.destroy();
+    }
+
+    // Disconnect MCP clients
     await this.mcpClientPool.disconnect();
     process.exit(0);
   }

@@ -140,7 +140,7 @@ export class SecurityValidator {
   /**
    * Create audit log entry
    */
-  async auditLog(entry: Omit<AuditLogEntry, 'timestamp' | 'codeHash'>, code: string): Promise<void> {
+  async auditLog(entry: Omit<AuditLogEntry, 'timestamp' | 'codeHash' | 'codeLength'>, code: string): Promise<void> {
     if (!isAuditLogEnabled()) {
       return;
     }
@@ -148,6 +148,7 @@ export class SecurityValidator {
     const fullEntry: AuditLogEntry = {
       timestamp: new Date().toISOString(),
       codeHash: hashCode(code),
+      codeLength: Buffer.byteLength(code, 'utf-8'),
       ...entry,
     };
 

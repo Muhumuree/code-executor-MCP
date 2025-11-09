@@ -89,10 +89,14 @@ export interface ToolInfo {
  * Execution audit log entry
  */
 export interface AuditLogEntry {
-  /** Timestamp */
+  /** Timestamp (ISO 8601) */
   timestamp: string;
+  /** Executor type (typescript or python) */
+  executor: 'typescript' | 'python';
   /** SHA-256 hash of executed code */
   codeHash: string;
+  /** Code length in bytes */
+  codeLength: number;
   /** Allowed tools whitelist */
   allowedTools: string[];
   /** Tools actually called */
@@ -103,6 +107,10 @@ export interface AuditLogEntry {
   success: boolean;
   /** Error message if failed */
   error?: string;
+  /** Client identifier (for rate limiting) */
+  clientId?: string;
+  /** Memory usage in bytes (if available) */
+  memoryUsage?: number;
 }
 
 /**
