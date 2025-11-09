@@ -80,9 +80,11 @@ export class MCPProxyServer {
 
           // Validate against allowlist
           if (!this.validator.isAllowed(toolName)) {
+            const allowedTools = this.validator.getAllowedTools();
             res.writeHead(403);
             res.end(JSON.stringify({
               error: `Tool '${toolName}' not in allowlist`,
+              allowedTools: allowedTools.length > 0 ? allowedTools : ['(empty - no tools allowed)'],
               suggestion: `Add '${toolName}' to allowedTools array`
             }));
             return;

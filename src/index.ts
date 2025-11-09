@@ -447,41 +447,38 @@ Returns:
 
   /**
    * Start server
+   *
+   * Errors are propagated to caller for proper error handling.
    */
   async start(): Promise<void> {
-    try {
-      // Initialize configuration
-      console.error('Loading configuration...');
-      await initConfig();
+    // Initialize configuration
+    console.error('Loading configuration...');
+    await initConfig();
 
-      // Initialize rate limiter if enabled
-      if (isRateLimitEnabled()) {
-        const rateLimitConfig = getRateLimitConfig();
-        if (rateLimitConfig) {
-          this.rateLimiter = new RateLimiter({
-            maxRequests: rateLimitConfig.maxRequests,
-            windowMs: rateLimitConfig.windowMs,
-          });
-          console.error(`Rate limiting enabled: ${rateLimitConfig.maxRequests} requests per ${rateLimitConfig.windowMs / 1000}s`);
-        }
+    // Initialize rate limiter if enabled
+    if (isRateLimitEnabled()) {
+      const rateLimitConfig = getRateLimitConfig();
+      if (rateLimitConfig) {
+        this.rateLimiter = new RateLimiter({
+          maxRequests: rateLimitConfig.maxRequests,
+          windowMs: rateLimitConfig.windowMs,
+        });
+        console.error(`Rate limiting enabled: ${rateLimitConfig.maxRequests} requests per ${rateLimitConfig.windowMs / 1000}s`);
       }
-
-      // Initialize MCP client pool
-      console.error('Initializing MCP client pool...');
-      await this.mcpClientPool.initialize();
-
-      const tools = this.mcpClientPool.listAllTools();
-      console.error(`Connected to ${tools.length} MCP tools across multiple servers`);
-
-      // Start stdio transport
-      const transport = new StdioServerTransport();
-      await this.server.connect(transport);
-
-      console.error('Code Executor MCP Server started successfully');
-    } catch (error) {
-      console.error('Failed to start server:', error);
-      process.exit(1);
     }
+
+    // Initialize MCP client pool
+    console.error('Initializing MCP client pool...');
+    await this.mcpClientPool.initialize();
+
+    const tools = this.mcpClientPool.listAllTools();
+    console.error(`Connected to ${tools.length} MCP tools across multiple servers`);
+
+    // Start stdio transport
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+
+    console.error('Code Executor MCP Server started successfully');
   }
 
   /**

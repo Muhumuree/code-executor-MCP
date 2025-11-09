@@ -10,7 +10,11 @@ export class ConnectionPool {
 
   constructor(
     private maxConcurrent: number = 100
-  ) {}
+  ) {
+    if (maxConcurrent < 1) {
+      throw new Error('maxConcurrent must be at least 1');
+    }
+  }
 
   /**
    * Acquire connection slot (waits if max concurrent reached)

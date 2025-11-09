@@ -42,6 +42,14 @@ def call_mcp_tool(tool_name: str, params: dict) -> any:
         raise Exception(error_data.get('error', 'MCP tool call failed'))
 
 # Execute user code
+# SECURITY: This exec() is safe because:
+# 1. User code is pre-validated by SecurityValidator.validateCode() before execution
+# 2. Dangerous patterns (os.system, subprocess, pickle, etc.) are blocked at validation
+# 3. Code runs in isolated subprocess with limited file system access (temp dir only)
+# 4. Network access restricted to localhost (MCP proxy server)
+# 5. Timeout enforcement prevents infinite loops (SIGKILL after timeoutMs)
+# 6. All executions are audit logged with code hash
+# 7. Tool allowlist prevents unauthorized MCP tool access
 exec(open('${userCodeFile}').read())
 `;
 }

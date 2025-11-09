@@ -26,6 +26,13 @@ export class AllowlistValidator {
   isAllowed(toolName: string): boolean {
     return this.allowedTools.includes(toolName);
   }
+
+  /**
+   * Get current allowlist
+   */
+  getAllowedTools(): string[] {
+    return [...this.allowedTools];
+  }
 }
 
 /**
