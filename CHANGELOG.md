@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2024-11-10
+
+### Fixed
+- 🐛 **Code Quality** - Fixed all ESLint errors (11 → 0)
+  - Removed unused error variables in catch blocks
+  - Removed unused imports (ExecuteTypescriptInput, ExecutePythonInput, spawn, extractServerName, isBlockedHost)
+  - ESLint now passes with 0 errors (15 warnings remain as technical debt)
+
 ### Changed
 - 📖 **Documentation** - De-emphasized TypeScript wrappers in README
   - Moved wrappers to "Advanced Features" section at bottom
