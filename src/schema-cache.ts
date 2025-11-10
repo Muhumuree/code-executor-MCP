@@ -38,10 +38,14 @@ export class SchemaCache {
 
   constructor(
     private mcpClientPool: MCPClientPool,
-    ttlMs: number = 24 * 60 * 60 * 1000 // 24 hours default (long TTL since we use failure-triggered refresh)
+    ttlMs: number = 24 * 60 * 60 * 1000, // 24 hours default (long TTL since we use failure-triggered refresh)
+    cachePath?: string // Optional cache path (for testing)
   ) {
+    if (ttlMs <= 0) {
+      throw new Error('ttlMs must be a positive number');
+    }
     this.ttlMs = ttlMs;
-    this.cachePath = path.join(os.homedir(), '.code-executor', 'schema-cache.json');
+    this.cachePath = cachePath || path.join(os.homedir(), '.code-executor', 'schema-cache.json');
     this.lock = new AsyncLock();
   }
 
@@ -80,7 +84,16 @@ export class SchemaCache {
         // Convert Map to JSON object
         const cacheObject = Object.fromEntries(this.cache.entries());
 
-        await fs.writeFile(this.cachePath, JSON.stringify(cacheObject, null, 2), 'utf-8');
+        // Serialize to JSON with error handling for edge cases
+        let jsonPayload: string;
+        try {
+          jsonPayload = JSON.stringify(cacheObject, null, 2);
+        } catch (serializationError) {
+          console.error('⚠️  Failed to serialize schema cache (circular reference or BigInt?):', (serializationError as Error).message);
+          throw serializationError; // Re-throw to be caught by outer catch
+        }
+
+        await fs.writeFile(this.cachePath, jsonPayload, 'utf-8');
       } catch (error) {
         console.error('⚠️  Failed to save schema cache to disk:', (error as Error).message);
       }
@@ -164,9 +177,12 @@ export class SchemaCache {
         expiresAt: Date.now() + this.ttlMs,
       });
 
-      // Save to disk asynchronously (don't await to avoid blocking)
+      // Save to disk asynchronously (don't await to avoid blocking response)
+      // NOTE: This is a fire-and-forget pattern for performance. The .catch()
+      // prevents unhandled rejections. Under persistent I/O failures, this could
+      // accumulate error handlers, but the risk is acceptable for the performance gain.
       this.saveToDisk().catch(err =>
-        console.error('Failed to save schema cache:', err.message)
+        console.error('⚠️  Failed to save schema cache:', err.message)
       );
 
       return schema;

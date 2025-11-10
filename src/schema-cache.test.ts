@@ -54,7 +54,7 @@ describe('SchemaCache', () => {
 
   describe('Basic caching', () => {
     it('should cache schemas in memory', async () => {
-      const cache = new SchemaCache(mockPool);
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
       const schema = await cache.getToolSchema('mcp__test__tool1');
 
       expect(schema).toBeDefined();
@@ -69,14 +69,14 @@ describe('SchemaCache', () => {
 
     it('should return null for non-existent tools', async () => {
       mockPool.getToolSchema = vi.fn(async () => null);
-      const cache = new SchemaCache(mockPool);
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
 
       const schema = await cache.getToolSchema('mcp__test__nonexistent');
       expect(schema).toBeNull();
     });
 
     it('should invalidate specific tool cache', async () => {
-      const cache = new SchemaCache(mockPool);
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
 
       await cache.getToolSchema('mcp__test__tool1');
       expect(mockPool.getToolSchema).toHaveBeenCalledTimes(1);
@@ -89,7 +89,7 @@ describe('SchemaCache', () => {
     });
 
     it('should invalidate all tool caches', async () => {
-      const cache = new SchemaCache(mockPool);
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
 
       await cache.getToolSchema('mcp__test__tool1');
       await cache.getToolSchema('mcp__test__tool2');
@@ -104,14 +104,22 @@ describe('SchemaCache', () => {
   });
 
   describe('TTL expiration', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('should refresh expired schemas', async () => {
-      const cache = new SchemaCache(mockPool, 100); // 100ms TTL
+      const cache = new SchemaCache(mockPool, 100, testCachePath); // 100ms TTL
 
       await cache.getToolSchema('mcp__test__tool1');
       expect(mockPool.getToolSchema).toHaveBeenCalledTimes(1);
 
-      // Wait for TTL to expire
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Advance time past the TTL
+      vi.advanceTimersByTime(150);
 
       // Should fetch again
       await cache.getToolSchema('mcp__test__tool1');
@@ -119,14 +127,14 @@ describe('SchemaCache', () => {
     });
 
     it('should use stale cache on fetch failure', async () => {
-      const cache = new SchemaCache(mockPool, 50); // Short TTL
+      const cache = new SchemaCache(mockPool, 50, testCachePath); // Short TTL
 
       // First fetch succeeds
       const schema1 = await cache.getToolSchema('mcp__test__tool1');
       expect(schema1).toBeDefined();
 
-      // Wait for cache to expire
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Advance time to expire cache
+      vi.advanceTimersByTime(100);
 
       // Make next fetch fail
       mockPool.getToolSchema = vi.fn(async () => {
@@ -141,7 +149,7 @@ describe('SchemaCache', () => {
 
   describe('Cache statistics', () => {
     it('should return cache stats', async () => {
-      const cache = new SchemaCache(mockPool);
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
 
       await cache.getToolSchema('mcp__test__tool1');
       await cache.getToolSchema('mcp__test__tool2');
@@ -149,30 +157,33 @@ describe('SchemaCache', () => {
       const stats = cache.getStats();
       expect(stats.size).toBe(2);
       expect(stats.entries).toHaveLength(2);
-      expect(stats.entries[0].tool).toMatch(/^mcp__test__/);
-      expect(stats.entries[0].age).toBeGreaterThanOrEqual(0);
+      expect(stats.entries[0]?.tool).toMatch(/^mcp__test__/);
+      expect(stats.entries[0]?.age).toBeGreaterThanOrEqual(0);
     });
 
     it('should cleanup expired entries', async () => {
-      const cache = new SchemaCache(mockPool, 100); // 100ms TTL
+      vi.useFakeTimers();
+      const cache = new SchemaCache(mockPool, 100, testCachePath); // 100ms TTL
 
       await cache.getToolSchema('mcp__test__tool1');
       await cache.getToolSchema('mcp__test__tool2');
 
       expect(cache.getStats().size).toBe(2);
 
-      // Wait for expiration
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Advance time past expiration
+      vi.advanceTimersByTime(150);
 
       const removed = cache.cleanup();
       expect(removed).toBe(2);
       expect(cache.getStats().size).toBe(0);
+
+      vi.useRealTimers();
     });
   });
 
   describe('Pre-population', () => {
     it('should pre-populate cache from tools list', async () => {
-      const cache = new SchemaCache(mockPool);
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
 
       await cache.prePopulate();
 
@@ -183,51 +194,60 @@ describe('SchemaCache', () => {
     });
 
     it('should skip fetching already cached tools during pre-population', async () => {
-      const cache = new SchemaCache(mockPool);
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
 
       // Pre-cache one tool
       await cache.getToolSchema('mcp__test__tool1');
-      expect(mockPool.getToolSchema).toHaveBeenCalledTimes(1);
 
-      // Pre-populate should only fetch the missing one
+      // Wait for async disk save to complete (use longer timeout or proper sync)
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Reset mock to count only pre-populate calls
+      vi.mocked(mockPool.getToolSchema).mockClear();
+
+      // Pre-populate should only fetch the missing one (tool2)
       await cache.prePopulate();
-      expect(mockPool.getToolSchema).toHaveBeenCalledTimes(2); // 1 + 1 = 2
-      expect(mockPool.getToolSchema).toHaveBeenNthCalledWith(2, 'mcp__test__tool2');
+
+      // Should only fetch tool2 (tool1 already cached)
+      expect(mockPool.getToolSchema).toHaveBeenCalledTimes(1);
+      expect(mockPool.getToolSchema).toHaveBeenCalledWith('mcp__test__tool2');
     });
 
     it('should handle pre-population errors gracefully', async () => {
       // Make getToolSchema fail for one tool
       const originalImpl = mockPool.getToolSchema;
-      let callCount = 0;
       mockPool.getToolSchema = vi.fn(async (toolName: string) => {
-        callCount++;
         if (toolName === 'mcp__test__tool2') {
           return null; // Simulate tool not found
         }
         return (originalImpl as any)(toolName);
       });
 
-      const cache = new SchemaCache(mockPool);
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
 
       // Should not throw, just skip missing tool
       await cache.prePopulate();
 
-      // Should have tried both
-      expect(callCount).toBe(2);
+      // Should have tried both tools
+      expect(mockPool.getToolSchema).toHaveBeenCalledTimes(2);
+      expect(mockPool.getToolSchema).toHaveBeenCalledWith('mcp__test__tool1');
+      expect(mockPool.getToolSchema).toHaveBeenCalledWith('mcp__test__tool2');
     });
   });
 
   describe('Concurrent access (race condition)', () => {
     it('should handle concurrent getToolSchema calls', async () => {
-      const cache = new SchemaCache(mockPool);
+      vi.useFakeTimers();
+      const cache = new SchemaCache(mockPool, 24 * 60 * 60 * 1000, testCachePath);
 
       // Make getToolSchema slow to simulate race condition
       let callCount = 0;
       mockPool.getToolSchema = vi.fn(async (toolName: string) => {
         callCount++;
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // Use Promise with immediate resolution for fake timers
+        await Promise.resolve();
         return {
-          name: toolName.split('__')[2],
+          name: toolName.split('__')[2]!,
           description: `Schema ${callCount}`,
           inputSchema: { type: 'object' },
         };
@@ -247,6 +267,8 @@ describe('SchemaCache', () => {
       // Should only fetch once (first request) or multiple times (no deduplication)
       // Either behavior is acceptable, just testing it doesn't crash
       expect(callCount).toBeGreaterThan(0);
+
+      vi.useRealTimers();
     });
   });
 });
