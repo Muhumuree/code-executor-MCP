@@ -19,8 +19,18 @@ coverage/
 *.swo
 *~
 
-# Claude Code configuration (user-specific)
+# AI/Development Tools (user-specific)
 .claude/
+.cursor/
+.codex/
+
+# BMAD Framework (user-specific)
+bmad/
+.bmad/
+.bmad-*/
+**/bmad/
+BMAD*.md
+bmad-*.md
 
 # OS
 .DS_Store
