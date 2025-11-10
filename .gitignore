@@ -19,6 +19,9 @@ coverage/
 *.swo
 *~
 
+# Claude Code configuration (user-specific)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -41,6 +44,7 @@ wrappers/
 
 # Internal documentation (not for public repo)
 CLAUDE.md
+docs/coding-standards.md
 *_TASKS_*.md
 *_TEST*.md
 *_TESTS_*.md
