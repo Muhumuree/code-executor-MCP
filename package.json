@@ -1,6 +1,6 @@
 {
   "name": "code-executor-mcp",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Universal MCP server for executing TypeScript/Python with progressive disclosure (98% token savings)",
   "type": "module",
   "main": "dist/index.js",
@@ -58,6 +58,7 @@
   },
   "devDependencies": {
     "@types/async-lock": "^1.4.2",
+    "@types/json-schema": "^7.0.15",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^8.46.3",

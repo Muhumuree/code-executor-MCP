@@ -32,6 +32,11 @@ bmad/
 BMAD*.md
 bmad-*.md
 
+# Specs and planning (user-specific)
+specs/
+PUBLISHING.md
+.specify/
+
 # OS
 .DS_Store
 Thumbs.db

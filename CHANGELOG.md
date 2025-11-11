@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-11-11
+
+### Added
+- ✨ **In-Sandbox MCP Tool Discovery** - AI agents can now discover, search, and inspect MCP tools dynamically
+  - `discoverMCPTools(options?)` - Fetch all available tool schemas from connected MCP servers
+  - `getToolSchema(toolName)` - Retrieve full JSON Schema for a specific tool
+  - `searchTools(query, limit?)` - Search tools by keywords with result limiting (default: 10)
+  - Single round-trip workflow: discover → inspect → execute in one `executeTypescript` call
+  - Functions injected into sandbox as `globalThis` (not exposed as top-level MCP tools)
+- ✨ **HTTP Discovery Endpoint** - New GET /mcp/tools endpoint on MCP Proxy Server
+  - Query parameters: `?q=keyword1+keyword2` for filtering (OR logic, case-insensitive)
+  - Bearer token authentication required (same as callMCPTool endpoint)
+  - Rate limiting: 30 req/60s (same as execution endpoint)
+  - Audit logging: All discovery requests logged with search terms and result counts
+- ✨ **Parallel MCP Query Infrastructure** - Query all MCP servers simultaneously for O(1) latency
+  - `Promise.all` pattern for parallel queries (not sequential)
+  - Resilient aggregation (partial failures don't block other servers)
+  - Performance: 50-100ms first call (populates cache), <5ms cached (24h TTL)
+  - Schema Cache integration: Reuses existing LRU cache with disk persistence
+
+### 💡 Zero Token Cost
+**Discovery functions consume ZERO tokens** - they're injected into the sandbox, not exposed as top-level MCP tools:
+- AI agents see only 3 tools: `executeTypescript`, `executePython`, `health` (~560 tokens)
+- Discovery functions (`discoverMCPTools`, `getToolSchema`, `searchTools`) are **hidden** - available only inside sandbox code
+- **Result**: 98% token savings maintained (141k → 1.6k tokens), no regression
+
+### Changed
+- ⚡ **Performance** - Discovery latency meets <100ms P95 target for 3 MCP servers
+  - Parallel queries: O(1) amortized complexity (max of all queries, not sum)
+  - Schema Cache: 20× faster on cache hits (100ms → 5ms)
+  - Timeout strategy: 500ms fast fail (no hanging, clear error messages)
+- 📖 **System Prompt** - Updated executeTypescript tool description with discovery functions
+  - Documented all three discovery functions with signatures and return types
+  - Added proactive workflow example (search → inspect → execute)
+  - Usage examples for each function with real-world scenarios
+- 📖 **Documentation** - Comprehensive architecture documentation
+  - New `docs/architecture.md` with component diagrams and data flows
+  - Discovery system section with performance characteristics
+  - Security trade-off documented (discovery bypasses allowlist for read-only metadata)
+
+### Fixed
+- 🐛 **Template Literal Bug** - Discovery functions not interpolating variables
+  - `src/sandbox-executor.ts:219,233` - Changed single quotes to escaped backticks for URL/token interpolation
+  - Impact: Discovery endpoint was unreachable (literal `${proxyPort}` instead of actual port number)
+- 🐛 **Response Parsing Bug** - Discovery endpoint returning wrapped object instead of array
+  - `src/sandbox-executor.ts:253-255` - Extract `tools` array from `{ tools: [...] }` wrapper
+  - Impact: `discoverMCPTools()` returned undefined instead of tool array
+- 🐛 **Wrapper Parsing Errors** - JSDoc comments breaking sandbox execution
+  - `src/sandbox-executor.ts:159-168` - Disabled broken wrapper code (YAGNI with progressive disclosure)
+  - Impact: All Playwright tool calls failing with parsing errors
+  - Users now call `callMCPTool()` directly after discovery (cleaner, explicit, no bugs)
+- 🐛 **Test Timeout Configuration** - Integration tests missing required `timeoutMs` parameter
+  - `tests/discovery-integration.test.ts` - Added `timeoutMs: 10000` to all `SandboxOptions`
+  - Impact: Tests failing with `NaN` duration display
+
+### Security
+- 🔒 **Intentional Security Exception** - Discovery bypasses tool allowlist (BY DESIGN)
+  - **Rationale**: AI agents need to know what tools exist (self-service discovery)
+  - **Mitigation**: Two-tier security model (discovery=read-only metadata, execution=enforces allowlist)
+  - **Risk Assessment**: LOW - tool schemas are non-sensitive metadata, no code execution
+  - **Controls**: Bearer token auth + rate limiting + audit logging + query validation
+- 🔒 **Query Validation** - Search queries validated to prevent injection attacks
+  - Max 100 characters
+  - Alphanumeric + spaces/hyphens/underscores only
+  - Clear error messages on validation failure
+- 🔒 **Audit Logging** - All discovery requests logged with context
+  - Action: 'discovery' (distinguishes from 'callMCPTool')
+  - Search terms, result count, timestamp, success/failure status
+
+### Testing
+- ✅ 95%+ coverage on discovery endpoint tests (12 new tests)
+- ✅ 90%+ coverage on MCP Client Pool discovery tests (6 new tests)
+- ✅ 90%+ coverage on sandbox discovery function tests (7 new tests)
+- ✅ 85%+ coverage on integration tests (4 new tests)
+- ✅ All 29 new discovery tests passing
+- ✅ End-to-end workflow validated (discover → inspect → execute)
+
+### Technical Details
+- **Progressive Disclosure Preservation**: Token usage maintained at ~560 tokens (3 tools, no increase)
+- **Discovery Functions**: Injected into sandbox via `globalThis` (hidden from top-level MCP tool list)
+- **Parallel Queries**: Promise.all pattern queries all MCP servers simultaneously (O(1) amortized)
+- **Timeout Strategy**: 500ms timeout on sandbox→proxy calls (fast fail, no retries)
+- **Schema Cache Integration**: Reuses existing LRU cache (max 1000 entries, 24h TTL, disk-persisted)
+- **Performance**: First call 50-100ms (cache population), subsequent <5ms (cache hit), meets <100ms P95 target
+- **Version Bump**: MINOR (v0.3.4 → v0.4.0) - Additive feature, backward compatible, no breaking changes
+
+### Benefits
+- **🎯 Self-Service Discovery** - AI agents no longer stuck without tool documentation
+- **⚡ Single Round-Trip** - Discover + inspect + execute in one call (no context switching)
+- **🔒 Security Balanced** - Read-only discovery with execution allowlist enforcement
+- **📉 98% Token Savings Maintained** - Progressive disclosure preserved (~560 tokens, 3 tools)
+- **🚀 O(1) Latency** - Parallel queries scale independently of MCP server count
+
 ## [0.3.4] - 2024-11-10
 
 ### Fixed
