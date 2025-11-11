@@ -101,6 +101,7 @@ describe('Discovery Integration Tests', () => {
         language: 'typescript',
         permissions: { read: [], write: [], net: [] },
         allowedTools: [],
+        timeoutMs: 10000,
       };
 
       const result = await executeTypescriptInSandbox(options, mcpClientPool);
@@ -142,6 +143,7 @@ describe('Discovery Integration Tests', () => {
         language: 'typescript',
         permissions: { read: [], write: [], net: [] },
         allowedTools: [],
+        timeoutMs: 10000,
       };
 
       const result = await executeTypescriptInSandbox(options, mcpClientPool);
@@ -193,6 +195,7 @@ describe('Discovery Integration Tests', () => {
         language: 'typescript',
         permissions: { read: [], write: [], net: [] },
         allowedTools: [],
+        timeoutMs: 10000,
       };
 
       const result = await executeTypescriptInSandbox(options, mcpClientPool);

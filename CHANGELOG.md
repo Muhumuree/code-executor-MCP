@@ -41,6 +41,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Discovery system section with performance characteristics
   - Security trade-off documented (discovery bypasses allowlist for read-only metadata)
 
+### Fixed
+- 🐛 **Template Literal Bug** - Discovery functions not interpolating variables
+  - `src/sandbox-executor.ts:219,233` - Changed single quotes to escaped backticks for URL/token interpolation
+  - Impact: Discovery endpoint was unreachable (literal `${proxyPort}` instead of actual port number)
+- 🐛 **Response Parsing Bug** - Discovery endpoint returning wrapped object instead of array
+  - `src/sandbox-executor.ts:253-255` - Extract `tools` array from `{ tools: [...] }` wrapper
+  - Impact: `discoverMCPTools()` returned undefined instead of tool array
+- 🐛 **Wrapper Parsing Errors** - JSDoc comments breaking sandbox execution
+  - `src/sandbox-executor.ts:159-168` - Disabled broken wrapper code (YAGNI with progressive disclosure)
+  - Impact: All Playwright tool calls failing with parsing errors
+  - Users now call `callMCPTool()` directly after discovery (cleaner, explicit, no bugs)
+- 🐛 **Test Timeout Configuration** - Integration tests missing required `timeoutMs` parameter
+  - `tests/discovery-integration.test.ts` - Added `timeoutMs: 10000` to all `SandboxOptions`
+  - Impact: Tests failing with `NaN` duration display
+
 ### Security
 - 🔒 **Intentional Security Exception** - Discovery bypasses tool allowlist (BY DESIGN)
   - **Rationale**: AI agents need to know what tools exist (self-service discovery)

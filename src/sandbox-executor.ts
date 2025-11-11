@@ -156,14 +156,16 @@ export async function executeTypescriptInSandbox(
       );
     }
 
-    // Load MCP tool wrappers for allowed tools
-    const wrappers = await loadWrappers(options.allowedTools || []);
+    // DISABLED: Wrappers are YAGNI with progressive disclosure
+    // Users can directly use callMCPTool() after discovery
+    // Wrappers were causing parsing errors and are not essential
+    const wrappers = '';
 
-    // DEBUG: Write wrappers to file for inspection
-    await fs.writeFile('/tmp/debug-wrappers.txt',
-      `Wrappers length: ${wrappers.length}\nAllowedTools: ${JSON.stringify(options.allowedTools)}\n\n${wrappers}`,
-      'utf-8'
-    );
+    // const wrappers = await loadWrappers(options.allowedTools || []);
+    // await fs.writeFile('/tmp/debug-wrappers.txt',
+    //   `Wrappers length: ${wrappers.length}\nAllowedTools: ${JSON.stringify(options.allowedTools)}\n\n${wrappers}`,
+    //   'utf-8'
+    // );
 
     // Create wrapper code that injects callMCPTool() + state functions + MCP wrappers and imports user code
     const wrappedCode = `
@@ -216,7 +218,7 @@ interface ToolSchema {
  */
 globalThis.discoverMCPTools = async (options?: { search?: string[] }): Promise<ToolSchema[]> => {
   // T068: Build URL with localhost proxy port
-  let url = 'http://localhost:${proxyPort}/mcp/tools';
+  let url = \`http://localhost:${proxyPort}/mcp/tools\`;
 
   // T071: Parse options.search array and append as ?q query parameters
   if (options?.search && options.search.length > 0) {
@@ -230,7 +232,7 @@ globalThis.discoverMCPTools = async (options?: { search?: string[] }): Promise<T
       method: 'GET',
       headers: {
         // T069: Add Authorization header with Bearer token
-        'Authorization': 'Bearer ${authToken}'
+        'Authorization': \`Bearer ${authToken}\`
       },
       // PERFORMANCE (Constitutional Principle 8): 500ms timeout prevents hanging
       // Meets NFR-2 requirement (<100ms P95 latency for normal case, 500ms max)
@@ -250,8 +252,9 @@ globalThis.discoverMCPTools = async (options?: { search?: string[] }): Promise<T
     }
 
     // T072: Parse JSON response and return ToolSchema[] array
-    const tools = await response.json();
-    return tools;
+    const data = await response.json();
+    // Extract tools array from wrapper object (endpoint returns { tools: [...] })
+    return data.tools || [];
   } catch (error: unknown) {
     // FIX: Proper error handling pattern (catch with unknown type)
     // Normalize error to Error instance before accessing properties
