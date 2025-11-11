@@ -7,7 +7,9 @@
 
 ## Problem
 
-47 MCP tools = 141k tokens just for schemas. Context exhausted before you start working.
+**Stuck at 2-3 MCP servers? Context exhaustion limits your tooling.**
+
+Industry research confirms: [Agents see "significant drop in tool use accuracy" after 2-3 servers](https://www.mcpjam.com/blog/claude-agent-skills) (mcpjam.com, 2025). [Enterprise MCP servers "consume tens of thousands of tokens, leaving little context window space"](https://www.mcplist.ai/blog/claude-skills-vs-mcp-guide/) (mcplist.ai, 2025). With [6,490+ MCP servers](https://www.pulsemcp.com/servers) available but only 2-3 usable, your context window is exhausted before work begins.
 
 ## Solution
 
