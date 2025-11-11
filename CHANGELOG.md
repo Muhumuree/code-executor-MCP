@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Performance: 50-100ms first call (populates cache), <5ms cached (24h TTL)
   - Schema Cache integration: Reuses existing LRU cache with disk persistence
 
+### 💡 Zero Token Cost
+**Discovery functions consume ZERO tokens** - they're injected into the sandbox, not exposed as top-level MCP tools:
+- AI agents see only 3 tools: `executeTypescript`, `executePython`, `health` (~560 tokens)
+- Discovery functions (`discoverMCPTools`, `getToolSchema`, `searchTools`) are **hidden** - available only inside sandbox code
+- **Result**: 98% token savings maintained (141k → 1.6k tokens), no regression
+
 ### Changed
 - ⚡ **Performance** - Discovery latency meets <100ms P95 target for 3 MCP servers
   - Parallel queries: O(1) amortized complexity (max of all queries, not sum)

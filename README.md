@@ -102,6 +102,15 @@ const result = await callMCPTool('mcp__filesystem__read_file', {
 });
 ```
 
+### 💡 Zero Token Cost
+
+**Discovery functions consume ZERO tokens** - they're hidden from AI agents:
+
+- **Top-level MCP tools** (what Claude sees): `executeTypescript`, `executePython`, `health` (~560 tokens)
+- **Discovery functions** (hidden): `discoverMCPTools`, `getToolSchema`, `searchTools` (0 tokens)
+- **Available only inside sandbox** - injected as `globalThis` functions, not exposed in tool list
+- **Result**: 98% token savings maintained (141k → 1.6k tokens), no regression
+
 ### Complete Workflow Example
 
 ```typescript
