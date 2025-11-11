@@ -7,9 +7,7 @@
 
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 import * as crypto from 'crypto';
-import { homedir } from 'os';
 import { getDenoPath } from './config.js';
 import { sanitizeOutput, truncateOutput, formatDuration, normalizeError } from './utils.js';
 import { MCPProxyServer } from './mcp-proxy-server.js';
@@ -17,75 +15,9 @@ import { StreamingProxy } from './streaming-proxy.js';
 import type { ExecutionResult, SandboxOptions } from './types.js';
 import type { MCPClientPool } from './mcp-client-pool.js';
 
-const WRAPPERS_DIR = path.join(homedir(), '.code-executor', 'wrappers');
-
-/**
- * Load wrapper code for allowed MCP tools
- */
-async function loadWrappers(allowedTools: string[]): Promise<string> {
-  console.log('[DEBUG] loadWrappers called with:', allowedTools);
-
-  try {
-    // Check if wrappers directory exists
-    await fs.access(WRAPPERS_DIR);
-    console.log('[DEBUG] Wrappers directory exists:', WRAPPERS_DIR);
-  } catch {
-    // No wrappers generated yet
-    console.log('[DEBUG] Wrappers directory not found');
-    return '';
-  }
-
-  const wrapperCode: string[] = [];
-
-  // Extract server names from allowed tools (mcp__<server>__<tool>)
-  const servers = new Set<string>();
-  for (const tool of allowedTools) {
-    const match = tool.match(/^mcp__([^_]+)__/);
-    if (match && match[1]) {
-      servers.add(match[1]);
-    }
-  }
-  console.log('[DEBUG] Extracted servers:', Array.from(servers));
-
-  // Load wrapper files for each server
-  for (const server of servers) {
-    const wrapperFile = path.join(WRAPPERS_DIR, `${server}.ts`);
-
-    try {
-      const content = await fs.readFile(wrapperFile, 'utf-8');
-
-      // Extract only the function implementations (strip comments and exports)
-      let functionCode = content
-        .replace(/\/\*\*[\s\S]*?\*\//g, '') // Remove JSDoc comments
-        .replace(/^export\s+/gm, '') // Remove export keywords
-        .replace(/^declare\s+global[\s\S]*?^}/gm, '') // Remove global declarations
-        .trim();
-
-      // Remove export default block at the end
-      functionCode = functionCode.replace(/\/\/ Export all wrappers[\s\S]*$/g, '');
-
-      // Convert function declarations to globalThis assignments
-      functionCode = functionCode.replace(
-        /^(async )?function (\w+)/gm,
-        'globalThis.$2 = $1function'
-      );
-
-      if (functionCode) {
-        wrapperCode.push(`// Wrappers for ${server}`);
-        wrapperCode.push(functionCode);
-        console.log(`[DEBUG] Loaded wrapper for ${server}, length:`, functionCode.length);
-      }
-    } catch (error) {
-      // Wrapper file doesn't exist for this server - skip silently
-      console.log(`[DEBUG] Failed to load wrapper for ${server}:`, error);
-      continue;
-    }
-  }
-
-  const result = wrapperCode.length > 0 ? '\n' + wrapperCode.join('\n\n') + '\n' : '';
-  console.log('[DEBUG] Total wrapper code length:', result.length);
-  return result;
-}
+// Configuration constants
+const DISCOVERY_TIMEOUT_MS = 500; // Discovery endpoint timeout (matches NFR-2 requirement)
+const SANDBOX_MEMORY_LIMIT_MB = 128; // V8 heap limit to prevent memory exhaustion attacks
 
 /**
  * Execute TypeScript code in Deno sandbox with MCP access
@@ -156,18 +88,7 @@ export async function executeTypescriptInSandbox(
       );
     }
 
-    // DISABLED: Wrappers are YAGNI with progressive disclosure
-    // Users can directly use callMCPTool() after discovery
-    // Wrappers were causing parsing errors and are not essential
-    const wrappers = '';
-
-    // const wrappers = await loadWrappers(options.allowedTools || []);
-    // await fs.writeFile('/tmp/debug-wrappers.txt',
-    //   `Wrappers length: ${wrappers.length}\nAllowedTools: ${JSON.stringify(options.allowedTools)}\n\n${wrappers}`,
-    //   'utf-8'
-    // );
-
-    // Create wrapper code that injects callMCPTool() + state functions + MCP wrappers and imports user code
+    // Create wrapper code that injects callMCPTool() + discovery functions and imports user code
     const wrappedCode = `
 // Injected callMCPTool function with authentication
 globalThis.callMCPTool = async (toolName: string, params: unknown) => {
@@ -234,9 +155,9 @@ globalThis.discoverMCPTools = async (options?: { search?: string[] }): Promise<T
         // T069: Add Authorization header with Bearer token
         'Authorization': \`Bearer ${authToken}\`
       },
-      // PERFORMANCE (Constitutional Principle 8): 500ms timeout prevents hanging
-      // Meets NFR-2 requirement (<100ms P95 latency for normal case, 500ms max)
-      signal: AbortSignal.timeout(500)
+      // PERFORMANCE (Constitutional Principle 8): Timeout prevents hanging
+      // Meets NFR-2 requirement (<100ms P95 latency for normal case)
+      signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)
     });
 
     // T073: Throw descriptive error if response not ok
@@ -262,7 +183,7 @@ globalThis.discoverMCPTools = async (options?: { search?: string[] }): Promise<T
 
     // Handle timeout errors with clear message
     if (normalizedError.name === 'AbortError' || normalizedError.name === 'TimeoutError') {
-      throw new Error('MCP tool discovery timed out after 500ms');
+      throw new Error(\`MCP tool discovery timed out after \${DISCOVERY_TIMEOUT_MS}ms\`);
     }
 
     // Re-throw normalized error
@@ -315,7 +236,6 @@ globalThis.searchTools = async (query: string, limit: number = 10): Promise<Tool
   return tools.slice(0, limit);
 };
 
-${wrappers}
 // Import and execute user code from temp file
 await import('file://${userCodeFile}');
 `;
@@ -328,8 +248,8 @@ await import('file://${userCodeFile}');
     // This prevents leakage of secrets (AWS_ACCESS_KEY_ID, DATABASE_URL, etc.)
 
     // SECURITY: Add V8 memory limit to prevent memory exhaustion attacks
-    // Limits heap to 128MB - prevents allocation bombs
-    denoArgs.push('--v8-flags=--max-old-space-size=128');
+    // Limits heap to prevent allocation bombs
+    denoArgs.push(`--v8-flags=--max-old-space-size=${SANDBOX_MEMORY_LIMIT_MB}`);
 
     // Always allow /tmp for temp file storage
     const readPaths = [...new Set([...(options.permissions.read ?? []), '/tmp'])];

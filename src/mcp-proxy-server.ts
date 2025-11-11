@@ -14,6 +14,9 @@ import { SchemaValidator } from './schema-validator.js';
 import { RateLimiter } from './rate-limiter.js';
 import type { MCPClientPool } from './mcp-client-pool.js';
 
+// Configuration constants
+const MAX_SEARCH_QUERY_LENGTH = 100; // Maximum characters allowed in search query
+
 /**
  * MCP proxy server that handles callMCPTool requests from sandbox
  *
@@ -335,7 +338,11 @@ export class MCPProxyServer {
         return;
       }
 
-      // Rate limiting: Check limit for this client (using 'default' as client ID)
+      // Rate limiting: Check limit for this client
+      // NOTE: Uses 'default' as client ID because each sandbox execution creates
+      // its own isolated MCPProxyServer instance. The proxy is single-client by design
+      // (only the sandbox process connects), so per-client tracking is unnecessary.
+      // Rate limit applies to the single sandbox execution, not across multiple clients.
       const rateLimit = await this.rateLimiter.checkLimit('default');
       if (!rateLimit.allowed) {
         res.writeHead(429, { 'Content-Type': 'application/json' });
@@ -363,16 +370,27 @@ export class MCPProxyServer {
       }
 
       // Fetch all tool schemas from MCPClientPool with configured timeout
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
+      let timeoutHandle: NodeJS.Timeout | null = null;
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(
           () => reject(new Error(`Request timeout after ${this.discoveryTimeoutMs}ms`)),
           this.discoveryTimeoutMs
-        )
-      );
+        );
+      });
 
       const toolsPromise = this.mcpClientPool.listAllToolSchemas(this.schemaCache);
 
-      const allTools = await Promise.race([toolsPromise, timeoutPromise]);
+      let allTools;
+      try {
+        allTools = await Promise.race([toolsPromise, timeoutPromise]);
+      } finally {
+        // FIX: Clear timeout to prevent memory leaks (race condition)
+        // If toolsPromise resolves first, timeout would otherwise remain active
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+      }
 
       // Filter tools by search keywords (OR logic, case-insensitive)
       const filteredTools = this.filterToolsByKeywords(allTools, searchParams);
@@ -413,10 +431,10 @@ export class MCPProxyServer {
    */
   private validateSearchQuery(queries: string[]): { error: string; query?: string } | null {
     for (const query of queries) {
-      // Max length: 100 characters
-      if (query.length > 100) {
+      // Max length validation
+      if (query.length > MAX_SEARCH_QUERY_LENGTH) {
         return {
-          error: 'Search query too long (max 100 characters)',
+          error: `Search query too long (max ${MAX_SEARCH_QUERY_LENGTH} characters)`,
           query,
         };
       }

@@ -75,6 +75,24 @@ You provided:
 - **Config:** Auto-discovery, env vars, MCP integration
 - **Quality:** TypeScript, 168 tests, 98%+ coverage on validation
 
+## Multi-Action Workflows (Single Tool Call)
+
+**Orchestrate complex MCP workflows in one execution** - no context switching, variables persist across actions:
+
+```typescript
+// Launch browser, navigate, interact, extract data - all in one tool call
+await executeTypescript(`
+  const playwright = await callMCPTool('mcp__playwright__launch', { headless: false });
+  await callMCPTool('mcp__playwright__navigate', { url: 'https://google.com' });
+  const results = await callMCPTool('mcp__playwright__evaluate', {
+    script: 'document.title'
+  });
+  console.log('Page title:', results);
+`, ['mcp__playwright__launch', 'mcp__playwright__navigate', 'mcp__playwright__evaluate']);
+```
+
+**Why this matters:** Traditional MCP calls require separate executions, losing state between calls. Code-executor maintains state, enabling multi-step automation with branching logic, error handling, and data transformations - all without leaving the sandbox. **Plus:** One tool call = one token cost (~1.6k tokens), regardless of how many MCP actions you orchestrate inside.
+
 ## Discovery Functions (v0.4.0)
 
 **Problem:** AI agents get stuck without knowing what MCP tools exist. Need manual documentation lookup.
