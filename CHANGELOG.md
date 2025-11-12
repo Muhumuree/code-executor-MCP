@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2025-11-12
+
+### Fixed
+- 🐛 **npm Package Completeness** - Re-published with complete dist/ directory
+  - v0.4.1 was published without compiled TypeScript (only 4 files: LICENSE, README, SECURITY, package.json)
+  - v0.4.2 includes full dist/ directory with all compiled JavaScript and type definitions
+  - Root cause: Used `--ignore-scripts` which skipped build step
+
+### Technical Details
+- **Files Published**: All dist/*.js, dist/*.d.ts, dist/*.map files now included
+- **Build Process**: Ensured `npm run build` completes before publish
+- **Verification**: Confirmed dist/index.js exists and is executable
+
 ## [0.4.1] - 2025-11-12
 
 ### Changed
