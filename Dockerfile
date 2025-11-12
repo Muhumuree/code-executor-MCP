@@ -1,5 +1,9 @@
 # Code Executor MCP Server - Secure Docker Image
 #
+# MULTI-STAGE BUILD:
+# - Stage 1 (builder): Compile TypeScript with dev dependencies
+# - Stage 2 (production): Minimal runtime image with only prod dependencies
+#
 # SECURITY FEATURES:
 # - Non-root user execution
 # - Resource limits (memory, CPU, processes)
@@ -7,9 +11,34 @@
 # - No capabilities
 # - Seccomp profile (restrict syscalls)
 # - Network isolation
-# - Minimal attack surface (distroless base)
+# - Minimal attack surface (alpine base)
 
-# Production stage (single-stage build - simpler)
+# ============================================================================
+# Stage 1: Builder - Compile TypeScript
+# ============================================================================
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files first (better layer caching)
+COPY package*.json ./
+
+# Install ALL dependencies (including devDependencies for TypeScript)
+RUN npm ci
+
+# Copy source files
+COPY src/ ./src/
+COPY tsconfig.json ./
+
+# Compile TypeScript → dist/
+RUN npm run build
+
+# Verify build output exists
+RUN test -d dist && test -f dist/index.js || (echo "Build failed: dist/index.js not found" && exit 1)
+
+# ============================================================================
+# Stage 2: Production - Minimal runtime image
+# ============================================================================
 FROM node:22-alpine AS production
 
 # Security: Create non-root user
@@ -29,13 +58,17 @@ RUN mkdir -p /app /tmp/code-executor && \
 
 WORKDIR /app
 
-# Copy pre-built application (build locally before docker build)
-COPY --chown=codeexec:codeexec ./dist ./dist
+# Copy package files first (better layer caching - invalidated less frequently)
 COPY --chown=codeexec:codeexec ./package*.json ./
-COPY --chown=codeexec:codeexec ./.mcp.example.json ./.mcp.json
 
-# Install only production dependencies
+# Install only production dependencies (cached unless package.json changes)
 RUN npm ci --omit=dev
+
+# Copy built artifacts from builder stage (invalidated on every source change)
+COPY --from=builder --chown=codeexec:codeexec /app/dist ./dist
+
+# Copy configuration files
+COPY --chown=codeexec:codeexec ./.mcp.example.json ./.mcp.json
 
 # Security: Switch to non-root user
 USER codeexec
@@ -63,6 +96,6 @@ CMD ["sh", "-c", "mkdir -p /tmp/code-executor && exec node dist/index.js"]
 
 # Metadata
 LABEL maintainer="code-executor-mcp" \
-      version="1.3.0" \
+      version="0.4.1" \
       description="Secure code execution sandbox with MCP integration" \
       security.features="non-root,resource-limits,ssrf-protection,network-isolation"
