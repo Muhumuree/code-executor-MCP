@@ -53,4 +53,4 @@ logs/
 .prettierrc
 .eslintrc
 vitest.config.ts
-tsconfig.json
+# tsconfig.json - NEEDED for multi-stage Docker build (DO NOT ignore)
