@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2025-11-14
+
+### Note
+This is the actual v0.5.0 release. The v0.5.0 version number was blocked by npm registry (likely due to a previous unpublished version), so we published as v0.5.1 instead. All features and changes listed below are identical to the intended v0.5.0 release.
+
+### Added - Production Infrastructure (Phases 3-8)
+
+- ✨ **Circuit Breaker Pattern** - Prevent cascade failures
+  - 5-failure threshold → 30s cooldown (matches K8s + AWS timings)
+  - Metrics: circuit_breaker_state, circuit_breaker_failures_total
+
+- ✨ **Connection Pool Overflow Queue** - Backpressure handling
+  - FIFO queue (200 requests, 30s timeout)
+  - Metrics: pool_queue_depth, pool_queue_wait_seconds
+
+- ✨ **Graceful Shutdown** - Zero-downtime K8s deployments
+  - SIGTERM/SIGINT handling, 30s drain timeout
+  - Health check coordination
+
+- ✨ **Prometheus Metrics** - Production telemetry
+  - Counters, histograms, gauges on /metrics endpoint
+  - http_requests_total, tool_calls_total, http_request_duration_seconds
+
+- ✨ **Audit Logging** - JSONL structured logs
+  - Daily rotation, 7-day retention
+  - Correlation IDs for distributed tracing
+
+- ✨ **CLI Formatter** - Human-friendly output
+  - Color-coded status (GREEN/RED/YELLOW)
+  - Integrated into tool responses
+
+- ✨ **Tool Aliases** - Modern naming
+  - New: run-typescript-code, run-python-code
+  - Legacy: executeTypescript, executePython (preserved)
+
+- ✨ **Tool Call Tracking** - Observability
+  - Per-tool metrics: duration, status, errors
+  - Aggregated summaries in ExecutionResult
+
 ### Added
 - ✨ **TypeScript Definitions Export (US12)** - Package now exports .d.ts files for type-safe imports
   - `tsconfig.json`: `declaration: true`, `declarationMap: true` enabled
