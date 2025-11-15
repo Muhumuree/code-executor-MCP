@@ -8,12 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- 🔧 **Config Merging** - Now properly merges global (`~/.claude.json`) and project (`.mcp.json`) MCP configurations
-  - Previously: Only used first config found (project shadowed global)
-  - Now: Merges all configs with project taking precedence for conflicts
-  - Example: Global voice-mode + Project filesystem/zen = All 9 servers available
-  - Added `findAllMCPConfigs()` method to config discovery
+- 🐛 **CRITICAL: Global MCP Config Discovery** - Fixed `MCP_CONFIG_PATH` blocking global config merging
+  - **Root Cause**: `findAllMCPConfigs()` had early return when `MCP_CONFIG_PATH` env var was set
+  - **Impact**: Global MCPs in `~/.claude.json` were completely ignored when project `.mcp.json` existed
+  - **Fix**: Removed early return, now searches all locations even with `MCP_CONFIG_PATH` set
+  - **Result**: Global + Project MCPs now properly merged (e.g., voice-mode from global + filesystem/zen from project)
+  - **Verification**: Tested with 3 global + 7 project servers, all 10 discovered (excluding self)
+
+### Added
+- 🔧 **Multi-Config Discovery Architecture** - Proper global + project MCP config merging
+  - Added `findAllMCPConfigs()` method to discover all config files
+  - Added `getAllMCPConfigPaths()` wrapper in config.ts
   - Updated `MCPClientPool.initialize()` to load and merge multiple configs
+  - Search order: `~/.claude.json` (global) → `.mcp.json` (project) → explicit path (highest priority)
+  - Later configs override earlier ones for servers with same name
 
 ## [0.7.2] - 2025-11-15
 
