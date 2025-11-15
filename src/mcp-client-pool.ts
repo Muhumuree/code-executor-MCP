@@ -100,12 +100,63 @@ export class MCPClientPool implements IToolSchemaProvider {
     }
 
     try {
-      // Resolve config path if not provided
-      const resolvedPath = configPath ?? await getMCPConfigPath();
+      let config: MCPConfig;
 
-      // Read MCP configuration
-      const configContent = await fs.readFile(resolvedPath, 'utf-8');
-      const config: MCPConfig = JSON.parse(configContent);
+      // Always load and merge multiple configs (global + project)
+      // Even if configPath is provided, we still want to merge with global configs
+      const { getAllMCPConfigPaths } = await import('./config.js');
+      let configPaths: string[];
+
+      // DEBUG: Log what configPath was passed
+      console.error(`DEBUG: configPath parameter = ${configPath || 'undefined'}`);
+      console.error(`DEBUG: process.env.MCP_CONFIG_PATH = ${process.env.MCP_CONFIG_PATH || 'undefined'}`);
+
+      if (configPath) {
+        // Explicit path provided via MCP_CONFIG_PATH
+        // Still discover and merge with global configs, but use explicit path as highest priority
+        const allPaths = await getAllMCPConfigPaths();
+        console.error(`DEBUG: getAllMCPConfigPaths() found ${allPaths.length} paths:`, allPaths);
+        // Put explicit path last so it has highest priority
+        configPaths = allPaths.filter(p => p !== configPath).concat([configPath]);
+        console.error(`DEBUG: After filter+concat, configPaths:`, configPaths);
+      } else {
+        // No explicit path, discover all configs
+        configPaths = await getAllMCPConfigPaths();
+        console.error(`DEBUG: No explicit path, getAllMCPConfigPaths() returned:`, configPaths);
+      }
+
+      if (configPaths.length === 0) {
+        // No configs found, use empty config
+        config = { mcpServers: {} };
+      } else if (configPaths.length === 1) {
+        // Single config, load it directly
+        const firstPath = configPaths[0];
+        if (!firstPath) {
+          config = { mcpServers: {} };
+        } else {
+          const configContent = await fs.readFile(firstPath, 'utf-8');
+          config = JSON.parse(configContent);
+        }
+      } else {
+        // Multiple configs found, merge them (later configs override earlier)
+        console.error(`📂 Merging ${configPaths.length} MCP configs: ${configPaths.map(p => p.split('/').pop()).join(' → ')}`);
+
+        const mergedServers: Record<string, MCPServerConfig> = {};
+
+        for (const configPath of configPaths) {
+          try {
+            const configContent = await fs.readFile(configPath, 'utf-8');
+            const parsedConfig: MCPConfig = JSON.parse(configContent);
+
+            // Merge mcpServers (later configs override earlier)
+            Object.assign(mergedServers, parsedConfig.mcpServers || {});
+          } catch (error) {
+            console.error(`⚠️  Failed to load config ${configPath}:`, error instanceof Error ? error.message : String(error));
+          }
+        }
+
+        config = { mcpServers: mergedServers };
+      }
 
       // Filter out code-executor to prevent circular dependency
       const filteredServers = Object.entries(config.mcpServers).filter(

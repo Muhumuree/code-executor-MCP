@@ -86,7 +86,61 @@ export class ConfigDiscoveryService {
   }
 
   /**
-   * Find MCP configuration file
+   * Find ALL MCP configuration files (for merging)
+   * Returns paths in reverse priority order (lowest priority first)
+   * so they can be merged with later configs overriding earlier ones
+   */
+  async findAllMCPConfigs(): Promise<string[]> {
+    const foundPaths: string[] = [];
+
+    // Check explicit override (highest priority - will be added last)
+    const explicitPath = process.env.MCP_CONFIG_PATH;
+    const hasExplicitPath = explicitPath && await this.fileExists(explicitPath);
+
+    // Check config file's mcpConfigPath (second highest priority)
+    const config = await this.findConfig();
+    const configMcpPath = config.mcpConfigPath;
+
+    // Search default locations in REVERSE order (global first, project last)
+    // This allows project configs to override global configs during merge
+    for (let i = MCP_CONFIG_SEARCH_PATHS.length - 1; i >= 0; i--) {
+      const searchPath = MCP_CONFIG_SEARCH_PATHS[i];
+      if (!searchPath) continue;
+
+      const resolvedPath = path.resolve(searchPath);
+
+      // Skip if this is the same as configMcpPath or explicitPath (avoid duplicates)
+      if (configMcpPath && path.resolve(configMcpPath) === resolvedPath) {
+        continue;
+      }
+      if (hasExplicitPath && path.resolve(explicitPath) === resolvedPath) {
+        continue;
+      }
+
+      if (await this.fileExists(searchPath)) {
+        foundPaths.push(resolvedPath);
+      }
+    }
+
+    // Add configMcpPath second-to-last (if different from explicit path)
+    if (configMcpPath && await this.fileExists(configMcpPath)) {
+      const resolvedConfigPath = path.resolve(configMcpPath);
+      if (!hasExplicitPath || path.resolve(explicitPath) !== resolvedConfigPath) {
+        foundPaths.push(resolvedConfigPath);
+      }
+    }
+
+    // Add explicit path LAST (highest priority)
+    if (hasExplicitPath) {
+      foundPaths.push(path.resolve(explicitPath));
+    }
+
+    return foundPaths;
+  }
+
+  /**
+   * Find MCP configuration file (returns first match for backward compatibility)
+   * For merging configs, use findAllMCPConfigs() instead
    */
   async findMCPConfig(): Promise<string> {
     // Check explicit override
