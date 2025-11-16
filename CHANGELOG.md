@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2025-11-16
+
+### Security
+- 🔒 **CRITICAL: Python Environment Variable Leakage (VULN-003)** - Fixed subprocess credential exposure
+  - **CVSS Score**: 7.5 (High)
+  - **Vulnerability**: Python executor inherited all parent environment variables
+  - **Impact**: Untrusted code could access AWS credentials, database URLs, API keys from parent process
+  - **Fix**: Added `env: {}` to Python spawn call to clear environment inheritance
+  - **Testing**: 3 comprehensive security tests verify AWS, DATABASE_URL, and generic secrets are blocked
+  - **Credit**: @guillegarciac for discovery and fix
+  - **Files**: `src/python-executor.ts:141`, `tests/security/python-env-isolation.test.ts`
+
 ### Fixed
 - 🐛 **CRITICAL: Global MCP Config Discovery** - Fixed `MCP_CONFIG_PATH` blocking global config merging
   - **Root Cause**: `findAllMCPConfigs()` had early return when `MCP_CONFIG_PATH` env var was set
