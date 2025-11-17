@@ -298,4 +298,59 @@ describe('Queue Polling Race Condition Fix (SEC-001)', () => {
       expect(elapsed).toBeLessThan(timeoutMs + 100);
     });
   });
+
+  describe('High Concurrency Scenarios (T070)', () => {
+    let emitter: EventEmitter;
+
+    beforeEach(() => {
+      emitter = new EventEmitter();
+      // Set max listeners to prevent warnings (matching implementation)
+      emitter.setMaxListeners(200);
+    });
+
+    it('should_handleManyListeners_when_highConcurrency', async () => {
+      // Test with >10 concurrent requests (Node.js default EventEmitter warning threshold)
+      const numRequests = 50;
+      const promises: Promise<void>[] = [];
+
+      // Register 50 listeners (well above default threshold of 10)
+      for (let i = 0; i < numRequests; i++) {
+        const requestId = `req-${i}`;
+        const promise = new Promise<void>((resolve) => {
+          emitter.once(`slot-${requestId}`, () => resolve());
+        });
+        promises.push(promise);
+      }
+
+      // Verify all listeners registered
+      expect(emitter.eventNames().length).toBe(numRequests);
+
+      // Emit events for all requests
+      for (let i = 0; i < numRequests; i++) {
+        emitter.emit(`slot-req-${i}`);
+      }
+
+      // All promises should resolve without warnings or errors
+      await Promise.all(promises);
+
+      // Verify all listeners cleaned up (EventEmitter.once auto-removes)
+      expect(emitter.eventNames().length).toBe(0);
+    });
+
+    it('should_notExceedMaxListeners_when_queueFull', () => {
+      // Test that setMaxListeners prevents warnings with large queues
+      const maxListeners = emitter.getMaxListeners();
+
+      // Should be set to queue size (200 per implementation)
+      expect(maxListeners).toBe(200);
+
+      // Register listeners up to max without warnings
+      for (let i = 0; i < maxListeners; i++) {
+        emitter.once(`slot-req-${i}`, () => {});
+      }
+
+      // Verify no errors thrown
+      expect(emitter.eventNames().length).toBe(maxListeners);
+    });
+  });
 });

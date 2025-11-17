@@ -97,6 +97,11 @@ export class MCPClientPool implements IToolSchemaProvider {
       timeoutMs: this.queueTimeoutMs,
     });
 
+    // WHY: Set max listeners to match queue size to prevent EventEmitter warnings
+    // Node.js default is 10 listeners per event. With large queues (200+ requests),
+    // we could exceed this and get false-positive warnings. Set to queue size as upper bound.
+    this.queueSlotEmitter.setMaxListeners(config?.queueSize ?? poolConfig.queueSize);
+
     // T054: Optional metrics exporter for recording pool metrics
     this.metricsExporter = metricsExporter;
   }
@@ -499,13 +504,9 @@ export class MCPClientPool implements IToolSchemaProvider {
    */
   private async waitForQueueSlot(requestId: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      // Set timeout to prevent indefinite waiting (matches queue timeout)
-      const timeout = setTimeout(() => {
-        // Remove event listener to prevent memory leak
-        this.queueSlotEmitter.off(`slot-${requestId}`, handler);
-        reject(new Error(`Queue timeout: Request ${requestId} not processed within ${this.queueTimeoutMs}ms`));
-      }, this.queueTimeoutMs);
-
+      // WHY: Register event listener FIRST before setting timeout
+      // This prevents a theoretical race where the event could be emitted
+      // after timeout is set but before listener is registered, causing a missed notification.
       // Event handler for queue slot notification
       const handler = () => {
         clearTimeout(timeout);
@@ -514,6 +515,14 @@ export class MCPClientPool implements IToolSchemaProvider {
 
       // Wait for slot notification event
       this.queueSlotEmitter.once(`slot-${requestId}`, handler);
+
+      // Set timeout to prevent indefinite waiting (matches queue timeout)
+      // Registered after listener to ensure we don't miss the event
+      const timeout = setTimeout(() => {
+        // Remove event listener to prevent memory leak
+        this.queueSlotEmitter.off(`slot-${requestId}`, handler);
+        reject(new Error(`Queue timeout: Request ${requestId} not processed within ${this.queueTimeoutMs}ms`));
+      }, this.queueTimeoutMs);
     });
   }
 
@@ -744,6 +753,11 @@ export class MCPClientPool implements IToolSchemaProvider {
     this.toolCache.clear();
     this.processes.clear();
     this.initialized = false;
+
+    // WHY: Remove all pending event listeners to prevent memory leaks
+    // During shutdown, there may be queued requests still waiting for slot notifications.
+    // Removing listeners ensures clean shutdown without dangling event handlers.
+    this.queueSlotEmitter.removeAllListeners();
   }
 
   /**
