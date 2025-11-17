@@ -352,16 +352,100 @@ Example:
     }
 
     // Tool 2: Execute Python (optional, enabled via config)
+    // SECURITY GATE: Check if Python sandbox is ready
+    // Issue #50/#59: Python executor has NO sandbox isolation until Pyodide is implemented
+    const PYTHON_SANDBOX_READY = process.env.PYTHON_SANDBOX_READY === 'true';
+
     if (isPythonEnabled()) {
+      if (!PYTHON_SANDBOX_READY) {
+        // Register stub handler that returns security warning
+        console.error('⚠️  Python executor DISABLED (CRITICAL security vulnerability #50)');
+        console.error('   Current Python executor has NO sandbox - full filesystem/network access!');
+        console.error('   Set PYTHON_SANDBOX_READY=true only after implementing Pyodide sandbox (issue #59)');
+
+        const pythonSecurityStubConfig: Parameters<McpServer['registerTool']>[1] = {
+          title: 'Execute Python with MCP Access (DISABLED - Security Issue)',
+          description: `⚠️  CRITICAL SECURITY WARNING ⚠️
+
+Python executor is currently DISABLED due to lack of sandbox isolation.
+
+VULNERABILITY: Issue #50 - Python executor has NO sandbox
+- Current implementation runs with full filesystem access
+- No network isolation (can access localhost services, cloud metadata)
+- Pattern-based security is easily bypassed
+- Execution via native subprocess.spawn() with zero restrictions
+
+SOLUTION IN PROGRESS: Issue #59 - Pyodide WebAssembly sandbox
+- Same security model as Deno (WASM isolation)
+- Virtual filesystem (no host access)
+- Network restricted to MCP proxy only
+- Industry-proven approach (Pydantic, JupyterLite)
+
+DO NOT enable this tool until Pyodide implementation is complete.
+See: https://github.com/aberemia24/code-executor-MCP/issues/50
+
+This tool is DISABLED for your protection.`,
+          inputSchema: {
+            code: z.string().min(1).describe('Python code (DISABLED)'),
+            allowedTools: z.array(z.string()).default([]).describe('MCP tools whitelist (DISABLED)'),
+            timeoutMs: z.number().int().min(1000).default(30000).describe('Timeout (DISABLED)'),
+          },
+          outputSchema: ExecutionResultSchema.shape,
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
+          },
+        };
+
+        const pythonSecurityStubHandler: Parameters<McpServer['registerTool']>[2] = async (args: any, extra: RequestHandlerExtra<any, any>) => {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                success: false,
+                output: '',
+                error: '🔴 CRITICAL: Python executor disabled due to security vulnerability.\n\n' +
+                       'ISSUE: No sandbox protection exists in current implementation (issue #50).\n' +
+                       '- Full filesystem access (can read /etc/passwd, SSH keys, etc.)\n' +
+                       '- Full network access (SSRF to localhost services, cloud metadata endpoints)\n' +
+                       '- Pattern-based blocking is easily bypassed\n\n' +
+                       'SOLUTION: Pyodide WebAssembly sandbox implementation in progress (issue #59).\n' +
+                       '- Same security model as Deno executor\n' +
+                       '- Virtual filesystem isolation\n' +
+                       '- Network restricted to authenticated MCP proxy\n\n' +
+                       'This tool will remain disabled until the security fix is complete.\n' +
+                       'For updates: https://github.com/aberemia24/code-executor-MCP/issues/50',
+                executionTimeMs: 0,
+              }, null, 2),
+            }],
+            isError: true,
+          };
+        };
+
+        this.registerToolWithAliases(
+          'run-python-code',
+          ['executePython'],
+          pythonSecurityStubConfig,
+          pythonSecurityStubHandler
+        );
+
+        return; // Exit early - don't register real Python handler
+      }
+
+      // PYTHON_SANDBOX_READY === true - register real Pyodide handler
       const pythonToolConfig: Parameters<McpServer['registerTool']>[1] = {
-        title: 'Execute Python with MCP Access',
-        description: `Execute Python code in a subprocess with access to MCP tools.
+        title: 'Execute Python with MCP Access (Pyodide Sandbox)',
+        description: `Execute Python code in Pyodide WebAssembly sandbox with access to MCP tools.
 
 Executed code has access to call_mcp_tool(toolName, params) function for calling other MCP servers.
 
-Security:
+Security (Pyodide Sandbox):
+- WebAssembly isolation (same security model as Deno)
+- Virtual filesystem (no host file access)
+- Network restricted to authenticated MCP proxy only
 - Only tools in allowedTools array can be called
-- Code pattern validation blocks dangerous operations
 - Execution timeout prevents infinite loops
 - All executions are audit logged
 
