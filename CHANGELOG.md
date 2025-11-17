@@ -137,6 +137,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.0] - 2025-11-17
 
+### ⚠️ BREAKING CHANGES
+
+**🚨 ATTENTION: This release contains breaking changes that require action**
+
+- **Native Python executor removed entirely**
+  The insecure subprocess-based Python executor has been completely removed due to CVSS 9.8 vulnerability (#50)
+
+- **`PYTHON_SANDBOX_READY=true` environment variable now REQUIRED**
+  Python execution will return a security warning unless this env var is explicitly set
+  ```bash
+  export PYTHON_SANDBOX_READY=true  # REQUIRED for Python execution
+  ```
+
+- **Pure Python only** (no native C extensions)
+  Libraries requiring C extensions must be WASM-compiled (numpy, pandas available via Pyodide)
+
+- **Migration required for existing Python users**
+  See Migration Guide below for step-by-step instructions
+
+---
+
 ### 🔒 SECURITY - CRITICAL Python Executor Fix
 
 #### ✅ RESOLVED: Issues #50/#59 - Pyodide WebAssembly Sandbox
@@ -214,11 +235,6 @@ export PYTHON_SANDBOX_READY=true
 - Pydantic mcp-run-python: https://github.com/pydantic/mcp-run-python
 - Pyodide docs: https://pyodide.org/
 - Issues: #50 (vulnerability), #59 (solution)
-
-**Breaking Changes**:
-- Native Python executor removed entirely
-- `PYTHON_SANDBOX_READY=true` environment variable now required
-- Pure Python only (no C extensions without WASM compilation)
 
 ### Refactored
 - 🏗️ **God Object Refactor (SMELL-001)** - Extracted 4 handler classes from MCPProxyServer following Single Responsibility Principle
