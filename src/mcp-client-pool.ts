@@ -12,7 +12,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import { getMCPConfigPath, getPoolConfig } from './config.js';
-import { isValidMCPToolName, normalizeError } from './utils.js';
+import { isValidMCPToolName, normalizeError, isErrnoException } from './utils.js';
 import type { MCPConfig, MCPServerConfig, ToolInfo, ProcessInfo, StdioServerConfig, HttpServerConfig } from './types.js';
 import { isStdioConfig, isHttpConfig } from './types.js';
 import type { IToolSchemaProvider, CachedToolSchema } from './types.js';
@@ -161,7 +161,9 @@ export class MCPClientPool implements IToolSchemaProvider {
             // Merge mcpServers (later configs override earlier)
             Object.assign(mergedServers, parsedConfig.mcpServers || {});
           } catch (error) {
-            console.error(`⚠️  Failed to load config ${configPath}:`, error instanceof Error ? error.message : String(error));
+            // TYPE-001 fix: Use normalizeError for consistency
+            const err = normalizeError(error);
+            console.error(`⚠️  Failed to load config ${configPath}:`, err.message);
           }
         }
 
@@ -426,9 +428,9 @@ export class MCPClientPool implements IToolSchemaProvider {
         }
       } catch (error) {
         // Queue full or timeout - return 503
-        throw new Error(
-          `Service Unavailable: ${(error as Error).message || 'Connection pool queue exhausted'}`
-        );
+        // TYPE-001 fix: Use normalizeError instead of unsafe cast
+        const err = normalizeError(error);
+        throw new Error(`Service Unavailable: ${err.message}`);
       }
     }
 
@@ -723,8 +725,9 @@ export class MCPClientPool implements IToolSchemaProvider {
               console.error(`✓ ${serverName} (PID ${pid}) exited gracefully`);
             }
           } catch (error) {
-            // Process might already be dead, safe to ignore
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+            // Process might already be dead, safe to ignore ESRCH (No such process)
+            // TYPE-001 fix: Use isErrnoException type guard instead of unsafe cast
+            if (!isErrnoException(error) || error.code !== 'ESRCH') {
               console.error(`Error killing ${serverName} (PID ${pid}):`, error);
             }
           }

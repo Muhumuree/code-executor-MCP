@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- 🛡️ **Type-Safe Error Handling (TYPE-001)** - Replaced unsafe error casts with runtime type guards
+  - **Issue**: [#43](https://github.com/aberemia24/code-executor-MCP/issues/43)
+  - **Root Cause**: Multiple files used unsafe error type casting (`error as Error`, `error as NodeJS.ErrnoException`) without runtime type guards, violating TypeScript strict mode best practices
+  - **Impact**:
+    - Type safety violation: Unsafe casts bypass compiler safety checks
+    - Runtime risk: Can crash if error is unexpected type (string, number, object)
+    - Lost error context: Pattern `error instanceof Error ? error.message : String(error)` loses stack traces, error codes, and custom properties
+  - **Fix**: Runtime type guard system
+    - Created type guard functions in `src/utils.ts`: `isError()`, `isErrnoException()`, `normalizeError()`
+    - Enhanced `normalizeError()` with function overloading (optional context parameter)
+    - Objects now JSON.stringify'd instead of `.toString()` (better debugging)
+    - Replaced all unsafe casts in `mcp-client-pool.ts` (2 instances), `schema-cache.ts` (4 instances), `audit-logger.ts` (3 instances)
+    - Updated `formatErrorResponse()` to use type guard
+  - **Benefits**:
+    - ✅ Type-safe error handling (no unsafe casts)
+    - ✅ Runtime validation prevents crashes
+    - ✅ Better error messages (JSON serialization vs `[object Object]`)
+    - ✅ Preserves stack traces and error properties
+    - ✅ Complies with TypeScript strict mode
+  - **Files**: `src/utils.ts` (+95), `src/mcp-client-pool.ts` (2 fixes), `src/schema-cache.ts` (4 fixes), `src/audit-logger.ts` (3 fixes)
+  - **Tests**: 28 comprehensive type guard tests (all passing)
+
 - 🔧 **Environment Variable Validation (SEC-002)** - Replaced direct process.env access with Zod validation
   - **Issue**: [#41](https://github.com/aberemia24/code-executor-MCP/issues/41)
   - **Root Cause**: `MCPClientPool` constructor used direct `process.env.POOL_*` access with `parseInt()`
