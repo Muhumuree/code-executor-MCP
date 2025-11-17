@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Refactored
+- 🏗️ **God Object Refactor (SMELL-001)** - Extracted 4 handler classes from MCPProxyServer following Single Responsibility Principle
+  - **Issue**: [#42](https://github.com/aberemia24/code-executor-MCP/issues/42)
+  - **Root Cause**: `MCPProxyServer` class grew to 793 lines with 7 different responsibilities (HTTP Routing, Authentication, Rate Limiting, Allowlist Validation, Discovery, Metrics, Audit Logging)
+  - **Impact**:
+    - Maintenance burden: HIGH (multiple reasons to change)
+    - Testing complexity: HIGH (many responsibilities to test)
+    - SOLID violation: Single Responsibility Principle violated
+  - **Fix**: Extracted handler classes with TDD approach
+    - Created `MetricsRequestHandler` for GET /metrics endpoint (77 lines, 8 tests)
+    - Created `HealthCheckHandler` for GET /health endpoint - NEW (106 lines, 14 tests)
+    - Created `DiscoveryRequestHandler` for GET /mcp/tools endpoint (260 lines, 16 tests)
+    - Created `ToolExecutionHandler` for POST / endpoint (213 lines, 20 tests)
+    - Created `IRequestHandler` interface for handler abstraction
+    - Reduced `MCPProxyServer` from 793 → 408 lines (48.5% reduction)
+    - Authentication validated ONCE in MCPProxyServer before routing to handlers
+  - **Benefits**:
+    - ✅ Single Responsibility: Each handler manages one endpoint
+    - ✅ Testability: Isolated unit tests per handler (58 new tests)
+    - ✅ Maintainability: Changes isolated to one handler class
+    - ✅ Follows SOLID principles (SRP, DIP, ISP)
+    - ✅ Zero behavioral changes (pure refactoring)
+  - **Files**:
+    - Created: `src/handlers/` (5 files, ~656 total lines)
+    - Created: `tests/handlers/` (4 files, ~881 total lines)
+    - Modified: `src/mcp-proxy-server.ts` (793 → 408 lines, -385 lines)
+  - **Tests**: 58 new handler tests, 747 total tests (100% pass rate)
+
+### Added
+- 🆕 **GET /health Endpoint** - Health check endpoint for monitoring and debugging (part of SMELL-001)
+  - Returns JSON status: healthy (boolean), timestamp, uptime, mcpClients stats, schemaCache stats
+  - Useful for Kubernetes liveness/readiness probes, Docker health checks, load balancers
+  - Always returns 200 (load balancers check response body for health status)
+
 ### Fixed
 - 🧪 **Test Isolation Fix** - Fixed config test failure caused by `.code-executor.json` override
   - **Issue**: `skip-dangerous-pattern-check.test.ts` failing because project config file has `skipDangerousPatternCheck: true`
