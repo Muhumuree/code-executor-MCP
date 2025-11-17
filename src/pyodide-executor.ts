@@ -261,14 +261,20 @@ _stdout_capture.getvalue()
       }
     })();
 
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(
+    // Create timeout with ID for cleanup (non-null assertion since setTimeout is synchronous)
+    let timeoutId!: NodeJS.Timeout;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
         () => reject(new Error(`Execution timeout after ${formatDuration(options.timeoutMs)}`)),
         options.timeoutMs
-      )
-    );
+      );
+    });
 
     const execResult = await Promise.race([execPromise, timeoutPromise]);
+
+    // CRITICAL: Clear timeout to prevent unhandled rejection after successful execution
+    // Note: clearTimeout is safe to call even if timeout already fired (no-op)
+    clearTimeout(timeoutId);
 
     // Broadcast completion to streaming clients
     if (streamingProxy) {

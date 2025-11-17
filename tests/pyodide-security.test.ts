@@ -75,8 +75,9 @@ for i in range(3):
       const result = await executePythonInSandbox(
         {
           code: `
+# Use top-level await (Pyodide already runs in async context)
 import asyncio
-asyncio.run(asyncio.sleep(10))  # Sleep longer than timeout
+await asyncio.sleep(10)  # Sleep longer than timeout
 `,
           allowedTools: [],
           timeoutMs: 1000,  // 1 second timeout
@@ -213,13 +214,14 @@ except Exception as e:
       const result = await executePythonInSandbox(
         {
           code: `
+# Use top-level await (Pyodide already runs in async context)
 import asyncio
 
 async def slow_function():
     await asyncio.sleep(0.1)
     return 'Done'
 
-result = asyncio.run(slow_function())
+result = await slow_function()
 print(result)
 `,
           allowedTools: [],
