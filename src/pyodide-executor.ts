@@ -183,8 +183,10 @@ async def discover_mcp_tools(search_terms=None):
     """Discover available MCP tools"""
     url = f'http://localhost:{PROXY_PORT}/mcp/tools'
     if search_terms:
-        query = '+'.join(search_terms)
-        url += f'?q={query}'
+        # Create multiple q= parameters for OR search (same as TypeScript sandbox)
+        # Example: ?q=file&q=read (NOT ?q=file+read)
+        search_params = '&'.join(f'q={term}' for term in search_terms)
+        url += f'?{search_params}'
 
     response = await pyfetch(url, headers={
         'Authorization': f'Bearer {AUTH_TOKEN}'
