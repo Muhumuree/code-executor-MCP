@@ -20,7 +20,8 @@ import { SecurityValidator } from './security.js';
 import { ConnectionPool } from './connection-pool.js';
 import { RateLimiter } from './rate-limiter.js';
 import { executeTypescriptInSandbox } from './sandbox-executor.js';
-import { executePythonInSandbox } from './python-executor.js';
+import { executePythonInSandbox as executePythonNative } from './python-executor.js';
+import { executePythonInSandbox as executePythonPyodide } from './pyodide-executor.js';
 import { formatErrorResponse, formatExecutionResultForCli } from './utils.js';
 import { ErrorType } from './types.js';
 import { checkDenoAvailable, getDenoVersion, getDenoInstallMessage } from './deno-checker.js';
@@ -549,6 +550,11 @@ Example:
           }
 
           // Execute code with connection pooling
+          // Use Pyodide (secure) when PYTHON_SANDBOX_READY, otherwise native (insecure)
+          const executePythonInSandbox = PYTHON_SANDBOX_READY
+            ? executePythonPyodide
+            : executePythonNative;
+
           const result = await this.connectionPool.execute(async () => {
             return await executePythonInSandbox(
               {
