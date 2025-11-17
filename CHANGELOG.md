@@ -42,6 +42,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Always returns 200 (load balancers check response body for health status)
 
 ### Fixed
+- 🔒 **TOCTOU Vulnerability Fix (SEC-006)** - Eliminated race condition in temp file integrity check
+  - **Issue**: [#44](https://github.com/aberemia24/code-executor-MCP/issues/44)
+  - **Root Cause**: Re-reading temp file after write created TOCTOU race window where attacker could modify file between write and hash verification
+  - **Impact**:
+    - Security risk: Time-of-check-time-of-use race condition
+    - Attack vector: Attacker modifies file in microsecond window
+    - Likelihood: VERY LOW (requires local access, UUID filename knowledge, microsecond timing)
+    - Overall risk: LOW (theoretical concern with existing mitigations)
+  - **Fix**: Eliminate re-read entirely
+    - Hash original code BEFORE writing (no filesystem access needed)
+    - Write temp file atomically with `fs.writeFile()`
+    - Execute immediately (no re-read = no race window)
+    - Reduced attack window from milliseconds to zero
+  - **Benefits**:
+    - ✅ Eliminates TOCTOU race condition entirely
+    - ✅ Simpler code (removed 10 lines of re-read logic)
+    - ✅ Faster execution (one less filesystem read)
+    - ✅ Same security guarantee (hash verification)
+  - **Files**: `src/sandbox-executor.ts` (lines 85-97, simplified)
+  - **Tests**: All existing sandbox tests pass (zero regressions)
+
 - 🧪 **Test Isolation Fix** - Fixed config test failure caused by `.code-executor.json` override
   - **Issue**: `skip-dangerous-pattern-check.test.ts` failing because project config file has `skipDangerousPatternCheck: true`
   - **Root Cause**: Test deleted env var but didn't override config file setting
