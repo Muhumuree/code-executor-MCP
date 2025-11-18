@@ -150,5 +150,28 @@ describe('CLIWizard', () => {
 
       expect(result).toEqual([]);
     });
+
+    it('should_throwError_when_selectedToolNoLongerAvailable', async () => {
+      vi.spyOn(toolDetector, 'detectInstalledTools').mockResolvedValue(mockInstalledTools);
+
+      // Simulate user selecting a tool ID that's not in the detected tools
+      // (as if tool was uninstalled after detection)
+      vi.mocked(prompts).mockResolvedValue({ selectedTools: ['non-existent-tool'] });
+
+      await expect(wizard.selectTools()).rejects.toThrow(
+        "Selected tool 'non-existent-tool' is no longer available"
+      );
+    });
+
+    it('should_returnEmptyArray_when_responseIsNull', async () => {
+      vi.spyOn(toolDetector, 'detectInstalledTools').mockResolvedValue(mockInstalledTools);
+
+      // Simulate prompts returning null (user cancelled with Ctrl+C)
+      vi.mocked(prompts).mockResolvedValue(null as any);
+
+      const result = await wizard.selectTools();
+
+      expect(result).toEqual([]);
+    });
   });
 });
