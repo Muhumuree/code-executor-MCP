@@ -19,12 +19,19 @@ describe('WrapperGenerator', () => {
     generator = new WrapperGenerator({
       outputDir: testOutputDir,
       templateDir: testTemplateDir,
+      manifestPath: path.join(testOutputDir, '..', 'wrapper-manifest.json'),
     });
   });
 
   afterEach(async () => {
     // Clean up test files
     await fs.rm(testOutputDir, { recursive: true, force: true });
+
+    // Clean up manifest file
+    const manifestPath = path.join(testOutputDir, '..', 'wrapper-manifest.json');
+    await fs.rm(manifestPath, { force: true }).catch(() => {
+      /* Ignore if doesn't exist */
+    });
   });
 
   describe('Security Tests (CVE-2021-23369)', () => {
@@ -483,6 +490,127 @@ describe('WrapperGenerator', () => {
 
       expect(result.success).toBe(false);
       expect(result.errorMessage).toMatch(/template.*not.*found|ENOENT/i);
+    });
+  });
+
+  describe('Wrapper Manifest Tracking', () => {
+    it('should_createManifest_when_firstWrapperGenerated', async () => {
+      // Arrange
+      const mcp: MCPServerSelection = {
+        name: 'test-server',
+        description: 'Test MCP server',
+        type: 'STDIO',
+        status: 'online',
+        toolCount: 1,
+        sourceConfig: '/test/config.json',
+        tools: [{ name: 'test_tool', description: 'Test tool', parameters: { type: 'object', properties: {} } }],
+      };
+
+      // Act
+      const result = await generator.generateWrapper(mcp, 'typescript', 'esm');
+
+      // Assert
+      expect(result.success).toBe(true);
+
+      // Check if manifest file exists
+      const manifestPath = path.join(testOutputDir, '..', 'wrapper-manifest.json');
+      const manifestExists = await fs.access(manifestPath).then(() => true).catch(() => false);
+      expect(manifestExists).toBe(true);
+
+      // Verify manifest content
+      if (manifestExists) {
+        const manifestContent = await fs.readFile(manifestPath, 'utf-8');
+        const manifest = JSON.parse(manifestContent);
+
+        expect(manifest).toHaveProperty('version');
+        expect(manifest).toHaveProperty('generatedAt');
+        expect(manifest).toHaveProperty('wrappers');
+        expect(Array.isArray(manifest.wrappers)).toBe(true);
+        expect(manifest.wrappers.length).toBeGreaterThan(0);
+
+        const wrapperEntry = manifest.wrappers.find((w: any) => w.mcpName === 'test-server');
+        expect(wrapperEntry).toBeDefined();
+        expect(wrapperEntry.language).toBe('typescript');
+        expect(wrapperEntry.schemaHash).toBeDefined();
+        expect(wrapperEntry.outputPath).toContain('test-server');
+      }
+    });
+
+    it('should_updateManifest_when_regeneratingWrapper', async () => {
+      // Arrange: Generate first time
+      const mcp: MCPServerSelection = {
+        name: 'test-server-2',
+        description: 'Test MCP server',
+        type: 'STDIO',
+        status: 'online',
+        toolCount: 1,
+        sourceConfig: '/test/config.json',
+        tools: [{ name: 'test_tool', description: 'Test tool v1', parameters: { type: 'object', properties: {} } }],
+      };
+
+      await generator.generateWrapper(mcp, 'typescript', 'esm');
+
+      // Act: Regenerate with updated schema
+      const mcpUpdated: MCPServerSelection = {
+        ...mcp,
+        tools: [{ name: 'test_tool_v2', description: 'Test tool v2 (updated)', parameters: { type: 'object', properties: { newParam: { type: 'string' } } } }],
+      };
+
+      const result2 = await generator.generateWrapper(mcpUpdated, 'typescript', 'esm');
+
+      // Assert
+      expect(result2.success).toBe(true);
+
+      const manifestPath = path.join(testOutputDir, '..', 'wrapper-manifest.json');
+      const manifestContent = await fs.readFile(manifestPath, 'utf-8');
+      const manifest = JSON.parse(manifestContent);
+
+      const wrapperEntry = manifest.wrappers.find((w: any) => w.mcpName === 'test-server-2');
+      expect(wrapperEntry).toBeDefined();
+      expect(wrapperEntry.schemaHash).toBe(result2.schemaHash); // Should match new hash
+    });
+
+    it('should_trackMultipleWrappers_when_generatingForDifferentMCPs', async () => {
+      // Arrange
+      const mcp1: MCPServerSelection = {
+        name: 'mcp-one',
+        description: 'First MCP',
+        type: 'STDIO',
+        status: 'online',
+        toolCount: 1,
+        sourceConfig: '/test/config.json',
+        tools: [{ name: 'tool1', description: 'Tool 1', parameters: { type: 'object', properties: {} } }],
+      };
+
+      const mcp2: MCPServerSelection = {
+        name: 'mcp-two',
+        description: 'Second MCP',
+        type: 'STDIO',
+        status: 'online',
+        toolCount: 1,
+        sourceConfig: '/test/config.json',
+        tools: [{ name: 'tool2', description: 'Tool 2', parameters: { type: 'object', properties: {} } }],
+      };
+
+      // Act
+      await generator.generateWrapper(mcp1, 'typescript', 'esm');
+      await generator.generateWrapper(mcp2, 'python', 'esm');
+
+      // Assert
+      const manifestPath = path.join(testOutputDir, '..', 'wrapper-manifest.json');
+      const manifestContent = await fs.readFile(manifestPath, 'utf-8');
+      const manifest = JSON.parse(manifestContent);
+
+      expect(manifest.wrappers.length).toBeGreaterThanOrEqual(2);
+
+      const wrapper1 = manifest.wrappers.find((w: any) => w.mcpName === 'mcp-one');
+      const wrapper2 = manifest.wrappers.find((w: any) => w.mcpName === 'mcp-two');
+
+      expect(wrapper1).toBeDefined();
+      expect(wrapper1.language).toBe('typescript');
+
+      expect(wrapper2).toBeDefined();
+      expect(wrapper2.language).toBe('python');
     });
   });
 });

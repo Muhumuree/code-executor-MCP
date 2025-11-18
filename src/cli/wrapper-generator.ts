@@ -11,7 +11,9 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as os from 'os';
 import Handlebars from 'handlebars';
+import AsyncLock from 'async-lock';
 import type {
   MCPServerSelection,
   WrapperGenerationResult,
@@ -36,6 +38,14 @@ export interface WrapperGeneratorOptions {
    * **DEFAULT:** ./templates
    */
   templateDir: string;
+
+  /**
+   * Manifest file path (optional)
+   *
+   * **DEFAULT:** ~/.code-executor/wrapper-manifest.json
+   * **PURPOSE:** Tracks generated wrappers for schema change detection (FR-6)
+   */
+  manifestPath?: string;
 }
 
 /**
@@ -55,12 +65,16 @@ export interface WrapperGeneratorOptions {
 export class WrapperGenerator {
   private outputDir: string;
   private templateDir: string;
+  private manifestPath: string;
   private handlebars: typeof Handlebars;
+  private manifestLock: AsyncLock;
 
   constructor(options: WrapperGeneratorOptions) {
     this.outputDir = options.outputDir;
     this.templateDir = options.templateDir;
+    this.manifestPath = options.manifestPath || path.join(os.homedir(), '.code-executor', 'wrapper-manifest.json');
     this.handlebars = Handlebars.create(); // Create isolated Handlebars instance
+    this.manifestLock = new AsyncLock();
 
     // Register custom helpers
     this.registerHelpers();
@@ -197,6 +211,89 @@ export class WrapperGenerator {
   }
 
   /**
+   * Read wrapper manifest from disk
+   *
+   * **CONCURRENCY:** AsyncLock not needed for reads (read-only operation)
+   * **PURPOSE:** Load existing manifest for schema change detection (FR-6)
+   *
+   * @returns Manifest object or null if file doesn't exist
+   */
+  private async readManifest(): Promise<{
+    version: string;
+    generatedAt: string;
+    wrappers: Array<{
+      mcpName: string;
+      language: string;
+      schemaHash: string;
+      outputPath: string;
+      generatedAt: string;
+      status?: 'success' | 'failed';
+      errorMessage?: string;
+    }>;
+  } | null> {
+    try {
+      const content = await fs.readFile(this.manifestPath, 'utf-8');
+      return JSON.parse(content);
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return null; // File doesn't exist yet
+      }
+      throw error; // Other errors should propagate
+    }
+  }
+
+  /**
+   * Write wrapper manifest to disk with AsyncLock protection
+   *
+   * **CONCURRENCY:** AsyncLock prevents race conditions on manifest writes
+   * **PURPOSE:** Track generated wrappers for schema change detection (FR-6)
+   * **FORMAT:** JSON with version, generatedAt, and wrappers array
+   *
+   * @param wrapperEntry New or updated wrapper entry
+   */
+  private async updateManifest(wrapperEntry: {
+    mcpName: string;
+    language: string;
+    schemaHash: string;
+    outputPath: string;
+    generatedAt: string;
+    status?: 'success' | 'failed';
+    errorMessage?: string;
+  }): Promise<void> {
+    await this.manifestLock.acquire('manifest-write', async () => {
+      // Read existing manifest (or create new)
+      const manifest = await this.readManifest() || {
+        version: '1.0.0',
+        generatedAt: new Date().toISOString(),
+        wrappers: [],
+      };
+
+      // Find existing entry for this MCP + language (if any)
+      const existingIndex = manifest.wrappers.findIndex(
+        (w) => w.mcpName === wrapperEntry.mcpName && w.language === wrapperEntry.language
+      );
+
+      if (existingIndex >= 0) {
+        // Update existing entry
+        manifest.wrappers[existingIndex] = wrapperEntry;
+      } else {
+        // Add new entry
+        manifest.wrappers.push(wrapperEntry);
+      }
+
+      // Update manifest timestamp
+      manifest.generatedAt = new Date().toISOString();
+
+      // Ensure manifest directory exists
+      const manifestDir = path.dirname(this.manifestPath);
+      await fs.mkdir(manifestDir, { recursive: true });
+
+      // Write manifest atomically
+      await fs.writeFile(this.manifestPath, JSON.stringify(manifest, null, 2));
+    });
+  }
+
+  /**
    * Generate wrapper for an MCP server
    *
    * **FLOW:**
@@ -296,6 +393,16 @@ export class WrapperGenerator {
       // Write file
       await fs.writeFile(outputPath, rendered, 'utf-8');
 
+      // Update manifest (success case)
+      await this.updateManifest({
+        mcpName: mcp.name,
+        language,
+        schemaHash,
+        outputPath,
+        generatedAt: templateData.generatedAt,
+        status: 'success',
+      });
+
       return {
         success: true,
         mcpName: mcp.name,
@@ -306,6 +413,18 @@ export class WrapperGenerator {
       };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Update manifest (failure case) - track failed attempts for debugging
+      await this.updateManifest({
+        mcpName: mcp.name,
+        language,
+        schemaHash: '', // No hash available if generation failed
+        outputPath: '',
+        generatedAt: new Date().toISOString(),
+        status: 'failed',
+        errorMessage,
+      });
+
       return {
         success: false,
         mcpName: mcp.name,
