@@ -389,4 +389,183 @@ describe('CLIWizard', () => {
       });
     });
   });
+
+  describe('selectMCPServers', () => {
+    const mockMCPServers = [
+      {
+        server: {
+          name: 'filesystem',
+          command: 'node',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+          sourceTool: 'claude-code',
+        },
+        status: 'available' as const,
+        message: 'Command found',
+      },
+      {
+        server: {
+          name: 'github',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          env: { GITHUB_TOKEN: 'token' },
+          sourceTool: 'cursor',
+        },
+        status: 'unavailable' as const,
+        message: 'Command not found',
+      },
+      {
+        server: {
+          name: 'postgres',
+          command: 'node',
+          args: ['dist/index.js'],
+          sourceTool: 'windsurf',
+        },
+        status: 'unknown' as const,
+      },
+    ];
+
+    it('should_returnSelectedServers_when_multipleServersChosen', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['filesystem', 'github'] });
+
+      const result = await wizard.selectMCPServers(mockMCPServers);
+
+      expect(result).toHaveLength(2);
+      expect(result.map(s => s.server.name)).toContain('filesystem');
+      expect(result.map(s => s.server.name)).toContain('github');
+    });
+
+    it('should_returnSingleServer_when_oneServerChosen', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['filesystem'] });
+
+      const result = await wizard.selectMCPServers(mockMCPServers);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].server.name).toBe('filesystem');
+      expect(result[0].status).toBe('available');
+    });
+
+    it('should_displayServerStatus_when_promptShown', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['filesystem'] });
+
+      await wizard.selectMCPServers(mockMCPServers);
+
+      // Verify prompts called with choices containing status indicators
+      expect(prompts).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'multiselect',
+          name: 'selectedServers',
+          choices: expect.arrayContaining([
+            expect.objectContaining({
+              title: expect.stringContaining('filesystem'),
+              description: expect.stringContaining('claude-code'),
+            }),
+          ]),
+        })
+      );
+    });
+
+    it('should_showAvailableStatus_when_serverCommandFound', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['filesystem'] });
+
+      await wizard.selectMCPServers(mockMCPServers);
+
+      // Check that available status is indicated in title
+      const promptCall = vi.mocked(prompts).mock.calls[0][0];
+      const filesystemChoice = (promptCall as any).choices.find((c: any) => c.value === 'filesystem');
+      expect(filesystemChoice.title).toContain('✓');
+    });
+
+    it('should_showUnavailableStatus_when_serverCommandNotFound', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['github'] });
+
+      await wizard.selectMCPServers(mockMCPServers);
+
+      // Check that unavailable status is indicated in title
+      const promptCall = vi.mocked(prompts).mock.calls[0][0];
+      const githubChoice = (promptCall as any).choices.find((c: any) => c.value === 'github');
+      expect(githubChoice.title).toContain('✗');
+    });
+
+    it('should_showUnknownStatus_when_serverStatusUnknown', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['postgres'] });
+
+      await wizard.selectMCPServers(mockMCPServers);
+
+      // Check that unknown status is indicated in title
+      const promptCall = vi.mocked(prompts).mock.calls[0][0];
+      const postgresChoice = (promptCall as any).choices.find((c: any) => c.value === 'postgres');
+      expect(postgresChoice.title).toContain('?');
+    });
+
+    it('should_validateMinimumSelection_when_noServersSelected', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: [] });
+
+      await wizard.selectMCPServers(mockMCPServers);
+
+      // Verify validation function exists and checks for minimum 1 server
+      const promptCall = vi.mocked(prompts).mock.calls[0][0];
+      const validateFn = (promptCall as any).validate;
+      expect(validateFn).toBeDefined();
+      expect(validateFn([])).toBe('You must select at least one MCP server');
+    });
+
+    it('should_allowSingleSelection_when_validationPasses', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['filesystem'] });
+
+      await wizard.selectMCPServers(mockMCPServers);
+
+      // Verify validation passes for 1+ servers
+      const promptCall = vi.mocked(prompts).mock.calls[0][0];
+      const validateFn = (promptCall as any).validate;
+      expect(validateFn(['filesystem'])).toBe(true);
+    });
+
+    it('should_preserveServerOrder_when_returningResults', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['github', 'filesystem'] });
+
+      const result = await wizard.selectMCPServers(mockMCPServers);
+
+      // Result should maintain selection order
+      expect(result).toHaveLength(2);
+      expect(result[0].server.name).toBe('github');
+      expect(result[1].server.name).toBe('filesystem');
+    });
+
+    it('should_returnEmptyArray_when_promptCancelled', async () => {
+      vi.mocked(prompts).mockResolvedValue(null as any);
+
+      const result = await wizard.selectMCPServers(mockMCPServers);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should_includeServerMetadata_when_returningResults', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['filesystem'] });
+
+      const result = await wizard.selectMCPServers(mockMCPServers);
+
+      // Verify complete metadata returned
+      expect(result[0]).toHaveProperty('server');
+      expect(result[0]).toHaveProperty('status');
+      expect(result[0].server).toHaveProperty('name');
+      expect(result[0].server).toHaveProperty('command');
+      expect(result[0].server).toHaveProperty('args');
+      expect(result[0].server).toHaveProperty('sourceTool');
+    });
+
+    it('should_displaySourceTool_when_promptShown', async () => {
+      vi.mocked(prompts).mockResolvedValue({ selectedServers: ['filesystem'] });
+
+      await wizard.selectMCPServers(mockMCPServers);
+
+      // Check that source tool is shown in description
+      const promptCall = vi.mocked(prompts).mock.calls[0][0];
+      const filesystemChoice = (promptCall as any).choices.find((c: any) => c.value === 'filesystem');
+      expect(filesystemChoice.description).toContain('claude-code');
+    });
+
+    it('should_throwError_when_emptyServerListProvided', async () => {
+      await expect(wizard.selectMCPServers([])).rejects.toThrow('No MCP servers discovered');
+    });
+  });
 });

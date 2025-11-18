@@ -6,10 +6,10 @@
  */
 
 import prompts from 'prompts';
-import Ajv from 'ajv';
+import { Ajv } from 'ajv';
 import type { ToolDetector } from './tool-detector.js';
 import type { AIToolMetadata } from './tool-registry.js';
-import type { SetupConfig } from './types.js';
+import type { SetupConfig, MCPServerStatusResult } from './types.js';
 import { setupConfigSchema } from './schemas/setup-config.schema.js';
 
 /**
@@ -224,5 +224,82 @@ export class CLIWizard {
     }
 
     return config;
+  }
+
+  /**
+   * Prompt user to select MCP servers for wrapper generation
+   *
+   * **INTEGRATION:** Combines discovery results with ping status for informed selection
+   * **VALIDATION:** Minimum 1 server must be selected
+   * **STATUS INDICATORS:** ✓ (available), ✗ (unavailable), ? (unknown)
+   * **RETURNS:** Array of selected server status results (preserves selection order)
+   *
+   * @param servers - Array of MCP server status results from discovery + ping
+   * @throws Error if no servers discovered
+   * @returns Selected server status results in user's selection order
+   */
+  async selectMCPServers(servers: MCPServerStatusResult[]): Promise<MCPServerStatusResult[]> {
+    // Validate input: must have at least 1 discovered server
+    if (servers.length === 0) {
+      throw new Error(
+        'No MCP servers discovered. Please ensure your AI tools have MCP servers configured in their .mcp.json files.'
+      );
+    }
+
+    // Create prompt choices with status indicators and metadata
+    const choices = servers.map(statusResult => {
+      // Status indicator (visual feedback)
+      const statusIcon =
+        statusResult.status === 'available' ? '✓' :
+        statusResult.status === 'unavailable' ? '✗' :
+        '?'; // unknown
+
+      // Format title with status and server name
+      const title = `${statusIcon} ${statusResult.server.name}`;
+
+      // Format description with source tool and command info
+      const description = `Source: ${statusResult.server.sourceTool} | Command: ${statusResult.server.command}`;
+
+      return {
+        title,
+        value: statusResult.server.name,
+        description,
+      };
+    });
+
+    // Multi-select prompt with validation
+    const response = await prompts({
+      type: 'multiselect',
+      name: 'selectedServers',
+      message: 'Select MCP servers to generate wrappers for',
+      choices,
+      hint: '- Space to select. Return to submit',
+      validate: (selected: string[]) => {
+        if (selected.length === 0) {
+          return 'You must select at least one MCP server';
+        }
+        return true;
+      },
+    });
+
+    // Handle cancelled prompts (user pressed Ctrl+C/ESC or null response)
+    if (!response?.selectedServers || response.selectedServers.length === 0) {
+      return [];
+    }
+
+    // Map selected server names back to full status results, preserving selection order
+    const selectedServerNames: string[] = response.selectedServers;
+
+    return selectedServerNames.map((name: string) => {
+      const serverStatus = servers.find(s => s.server.name === name);
+      if (!serverStatus) {
+        throw new Error(
+          `Selected MCP server '${name}' is no longer available. ` +
+          `It may have been removed from config after discovery. ` +
+          `Please re-run the wizard.`
+        );
+      }
+      return serverStatus;
+    });
   }
 }
