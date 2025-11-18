@@ -174,4 +174,219 @@ describe('CLIWizard', () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe('askConfigQuestions', () => {
+    describe('Happy Path', () => {
+      it('should_returnConfigWithDefaults_when_userAcceptsAllDefaults', async () => {
+        // Simulate user pressing Enter on all prompts (accepting defaults)
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 3000,
+          executionTimeout: 120000,
+          rateLimit: 30,
+          auditLogPath: '~/.code-executor/audit-logs/audit.jsonl',
+          schemaCacheTTL: 24,
+        });
+
+        const result = await wizard.askConfigQuestions();
+
+        expect(result.proxyPort).toBe(3000);
+        expect(result.executionTimeout).toBe(120000);
+        expect(result.rateLimit).toBe(30);
+        expect(result.auditLogPath).toBe('~/.code-executor/audit-logs/audit.jsonl');
+        expect(result.schemaCacheTTL).toBe(24);
+      });
+
+      it('should_returnConfigWithCustomValues_when_userProvidesValidInputs', async () => {
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 8080,
+          executionTimeout: 60000,
+          rateLimit: 100,
+          auditLogPath: '/var/log/code-executor/audit.jsonl',
+          schemaCacheTTL: 48,
+        });
+
+        const result = await wizard.askConfigQuestions();
+
+        expect(result.proxyPort).toBe(8080);
+        expect(result.executionTimeout).toBe(60000);
+        expect(result.rateLimit).toBe(100);
+        expect(result.auditLogPath).toBe('/var/log/code-executor/audit.jsonl');
+        expect(result.schemaCacheTTL).toBe(48);
+      });
+
+      it('should_returnAllRequiredFields_when_configCreated', async () => {
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 3000,
+          executionTimeout: 120000,
+          rateLimit: 30,
+          auditLogPath: '~/.code-executor/audit-logs/audit.jsonl',
+          schemaCacheTTL: 24,
+        });
+
+        const result = await wizard.askConfigQuestions();
+
+        // Verify all required fields present
+        expect(result).toHaveProperty('proxyPort');
+        expect(result).toHaveProperty('executionTimeout');
+        expect(result).toHaveProperty('rateLimit');
+        expect(result).toHaveProperty('auditLogPath');
+        expect(result).toHaveProperty('schemaCacheTTL');
+      });
+    });
+
+    describe('Validation', () => {
+      it('should_haveValidation_for_proxyPort', async () => {
+        // Test that validate function exists and works correctly
+        const mockPrompts = vi.mocked(prompts);
+
+        // Mock valid response
+        mockPrompts.mockResolvedValue({
+          proxyPort: 3000,
+          executionTimeout: 120000,
+          rateLimit: 30,
+          auditLogPath: '~/.code-executor/audit-logs/audit.jsonl',
+          schemaCacheTTL: 24,
+        });
+
+        await wizard.askConfigQuestions();
+
+        // Verify prompts was called with validation function
+        const firstCall = mockPrompts.mock.calls[0][0];
+        expect(firstCall).toHaveProperty('validate');
+
+        // Test validation function directly
+        if (typeof firstCall.validate === 'function') {
+          expect(firstCall.validate(500)).toContain('1024');
+          expect(firstCall.validate(70000)).toContain('65535');
+          expect(firstCall.validate(3000)).toBe(true);
+        }
+      });
+
+      it('should_haveValidation_for_executionTimeout', async () => {
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 3000,
+          executionTimeout: 120000,
+          rateLimit: 30,
+          auditLogPath: '~/.code-executor/audit-logs/audit.jsonl',
+          schemaCacheTTL: 24,
+        });
+
+        await wizard.askConfigQuestions();
+
+        const secondCall = vi.mocked(prompts).mock.calls[1][0];
+        expect(secondCall).toHaveProperty('validate');
+
+        if (typeof secondCall.validate === 'function') {
+          expect(secondCall.validate(500)).toContain('1000');
+          expect(secondCall.validate(700000)).toContain('600000');
+          expect(secondCall.validate(120000)).toBe(true);
+        }
+      });
+
+      it('should_haveValidation_for_rateLimit', async () => {
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 3000,
+          executionTimeout: 120000,
+          rateLimit: 30,
+          auditLogPath: '~/.code-executor/audit-logs/audit.jsonl',
+          schemaCacheTTL: 24,
+        });
+
+        await wizard.askConfigQuestions();
+
+        const thirdCall = vi.mocked(prompts).mock.calls[2][0];
+        expect(thirdCall).toHaveProperty('validate');
+
+        if (typeof thirdCall.validate === 'function') {
+          expect(thirdCall.validate(0)).toContain('1');
+          expect(thirdCall.validate(1500)).toContain('1000');
+          expect(thirdCall.validate(30)).toBe(true);
+        }
+      });
+
+      it('should_haveValidation_for_auditLogPath', async () => {
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 3000,
+          executionTimeout: 120000,
+          rateLimit: 30,
+          auditLogPath: '~/.code-executor/audit-logs/audit.jsonl',
+          schemaCacheTTL: 24,
+        });
+
+        await wizard.askConfigQuestions();
+
+        const fourthCall = vi.mocked(prompts).mock.calls[3][0];
+        expect(fourthCall).toHaveProperty('validate');
+
+        if (typeof fourthCall.validate === 'function') {
+          expect(fourthCall.validate('')).toContain('empty');
+          expect(fourthCall.validate('   ')).toContain('empty');
+          expect(fourthCall.validate('/tmp/audit.jsonl')).toBe(true);
+        }
+      });
+
+      it('should_haveValidation_for_schemaCacheTTL', async () => {
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 3000,
+          executionTimeout: 120000,
+          rateLimit: 30,
+          auditLogPath: '~/.code-executor/audit-logs/audit.jsonl',
+          schemaCacheTTL: 24,
+        });
+
+        await wizard.askConfigQuestions();
+
+        const fifthCall = vi.mocked(prompts).mock.calls[4][0];
+        expect(fifthCall).toHaveProperty('validate');
+
+        if (typeof fifthCall.validate === 'function') {
+          expect(fifthCall.validate(0)).toContain('1');
+          expect(fifthCall.validate(200)).toContain('168');
+          expect(fifthCall.validate(24)).toBe(true);
+        }
+      });
+    });
+
+    describe('Edge Cases', () => {
+      it('should_handleCancellation_when_userPressesCancelCtrlC', async () => {
+        vi.mocked(prompts).mockResolvedValue(null as any);
+
+        await expect(wizard.askConfigQuestions()).rejects.toThrow('Configuration cancelled');
+      });
+
+      it('should_acceptBoundaryValues_when_atMinimum', async () => {
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 1024,
+          executionTimeout: 1000,
+          rateLimit: 1,
+          auditLogPath: '/tmp/audit.jsonl',
+          schemaCacheTTL: 1,
+        });
+
+        const result = await wizard.askConfigQuestions();
+
+        expect(result.proxyPort).toBe(1024);
+        expect(result.executionTimeout).toBe(1000);
+        expect(result.rateLimit).toBe(1);
+        expect(result.schemaCacheTTL).toBe(1);
+      });
+
+      it('should_acceptBoundaryValues_when_atMaximum', async () => {
+        vi.mocked(prompts).mockResolvedValue({
+          proxyPort: 65535,
+          executionTimeout: 600000,
+          rateLimit: 1000,
+          auditLogPath: '/tmp/audit.jsonl',
+          schemaCacheTTL: 168,
+        });
+
+        const result = await wizard.askConfigQuestions();
+
+        expect(result.proxyPort).toBe(65535);
+        expect(result.executionTimeout).toBe(600000);
+        expect(result.rateLimit).toBe(1000);
+        expect(result.schemaCacheTTL).toBe(168);
+      });
+    });
+  });
 });
