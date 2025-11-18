@@ -9,7 +9,7 @@ import prompts from 'prompts';
 import { Ajv } from 'ajv';
 import type { ToolDetector } from './tool-detector.js';
 import type { AIToolMetadata } from './tool-registry.js';
-import type { SetupConfig, MCPServerStatusResult } from './types.js';
+import type { SetupConfig, MCPServerStatusResult, LanguageSelection, WrapperLanguage } from './types.js';
 import { setupConfigSchema } from './schemas/setup-config.schema.js';
 
 /**
@@ -301,5 +301,87 @@ export class CLIWizard {
       }
       return serverStatus;
     });
+  }
+
+  /**
+   * Prompt user to select wrapper language for each MCP server
+   *
+   * **APPROACH:** Per-item prompting (iterate servers, ask language choice for each)
+   * **VALIDATION:** Ensures all servers get language selection
+   * **CHOICES:** TypeScript, Python, or Both
+   * **RETURNS:** Array of language selections (server + language pairs)
+   *
+   * @param selectedServers - Array of MCP server status results from selectMCPServers()
+   * @throws Error if no servers provided or user cancels
+   * @returns Language selections in server order
+   *
+   * @example
+   * ```typescript
+   * const wizard = new CLIWizard(toolDetector);
+   * const selections = await wizard.selectLanguagePerMCP(servers);
+   * // selections: [{ server: {...}, language: 'typescript' }, { server: {...}, language: 'python' }]
+   * ```
+   */
+  async selectLanguagePerMCP(selectedServers: MCPServerStatusResult[]): Promise<LanguageSelection[]> {
+    // Validate input: must have at least 1 server
+    if (selectedServers.length === 0) {
+      throw new Error('No servers provided for language selection');
+    }
+
+    // Language selection choices (same for all servers)
+    const languageChoices = [
+      {
+        title: 'TypeScript',
+        value: 'typescript' as WrapperLanguage,
+        description: 'Generate TypeScript wrapper with type definitions',
+      },
+      {
+        title: 'Python',
+        value: 'python' as WrapperLanguage,
+        description: 'Generate Python wrapper with type hints',
+      },
+      {
+        title: 'Both (TypeScript + Python)',
+        value: 'both' as WrapperLanguage,
+        description: 'Generate wrappers for both languages',
+      },
+    ];
+
+    // Collect language selections per server
+    const selections: LanguageSelection[] = [];
+
+    // Iterate through servers and prompt for each
+    for (const serverStatus of selectedServers) {
+      const response = await prompts({
+        type: 'select',
+        name: 'language',
+        message: `Select wrapper language for "${serverStatus.server.name}"`,
+        choices: languageChoices,
+        initial: 0, // Default to TypeScript
+      });
+
+      // Handle cancelled prompt (user pressed Ctrl+C/ESC)
+      if (!response || response.language === undefined) {
+        throw new Error('Language selection cancelled by user');
+      }
+
+      const language = response.language;
+
+      // Runtime type guard validation (fail-fast if prompts library returns unexpected value)
+      const validLanguages: WrapperLanguage[] = ['typescript', 'python', 'both'];
+      if (!validLanguages.includes(language as WrapperLanguage)) {
+        throw new Error(
+          `Invalid language selection: ${language}. Expected one of: ${validLanguages.join(', ')}`
+        );
+      }
+
+      // Add selection to results
+      selections.push({
+        server: serverStatus.server,
+        language: language as WrapperLanguage, // Safe after validation
+      });
+    }
+
+    return selections;
   }
 }

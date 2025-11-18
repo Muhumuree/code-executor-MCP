@@ -191,3 +191,27 @@ export interface AllDependenciesResult {
    */
   pip: DependencyCheckResult;
 }
+
+/**
+ * WrapperLanguage - Supported wrapper languages for code generation
+ *
+ * **USAGE:** Language selection for MCP wrapper generation (FR-4)
+ */
+export type WrapperLanguage = 'typescript' | 'python' | 'both';
+
+/**
+ * LanguageSelection - Language choice for a specific MCP server
+ *
+ * **USAGE:** Maps MCP server to user's language selection
+ */
+export interface LanguageSelection {
+  /**
+   * MCP server configuration
+   */
+  server: MCPServerConfig;
+
+  /**
+   * Selected wrapper language(s)
+   */
+  language: WrapperLanguage;
+}

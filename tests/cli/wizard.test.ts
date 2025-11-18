@@ -568,4 +568,150 @@ describe('CLIWizard', () => {
       await expect(wizard.selectMCPServers([])).rejects.toThrow('No MCP servers discovered');
     });
   });
+
+  describe('selectLanguagePerMCP', () => {
+    const mockSelectedServers = [
+      {
+        server: {
+          name: 'filesystem',
+          command: 'node',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+          sourceTool: 'claude-code',
+        },
+        status: 'available' as const,
+        message: 'Command found',
+      },
+      {
+        server: {
+          name: 'github',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          sourceTool: 'cursor',
+        },
+        status: 'available' as const,
+        message: 'Command found',
+      },
+    ];
+
+    it('should_promptForEachServer_when_multipleServersSelected', async () => {
+      // Mock user selecting TypeScript for filesystem, Python for github
+      vi.mocked(prompts)
+        .mockResolvedValueOnce({ language: 'typescript' })
+        .mockResolvedValueOnce({ language: 'python' });
+
+      const result = await wizard.selectLanguagePerMCP(mockSelectedServers);
+
+      expect(result).toHaveLength(2);
+      expect(result[0].server.name).toBe('filesystem');
+      expect(result[0].language).toBe('typescript');
+      expect(result[1].server.name).toBe('github');
+      expect(result[1].language).toBe('python');
+    });
+
+    it('should_supportBothLanguages_when_userSelectsBoth', async () => {
+      vi.mocked(prompts).mockResolvedValue({ language: 'both' });
+
+      const result = await wizard.selectLanguagePerMCP([mockSelectedServers[0]]);
+
+      expect(result[0].language).toBe('both');
+    });
+
+    it('should_throwError_when_userCancelsPrompt', async () => {
+      vi.mocked(prompts).mockResolvedValue(null);
+
+      await expect(wizard.selectLanguagePerMCP(mockSelectedServers)).rejects.toThrow('Language selection cancelled');
+    });
+
+    it('should_throwError_when_emptyServerList', async () => {
+      await expect(wizard.selectLanguagePerMCP([])).rejects.toThrow('No servers provided');
+    });
+
+    it('should_displayServerNameInPrompt_when_askingForLanguage', async () => {
+      vi.mocked(prompts).mockResolvedValue({ language: 'typescript' });
+
+      await wizard.selectLanguagePerMCP([mockSelectedServers[0]]);
+
+      // Verify prompt message includes server name
+      const promptCall = vi.mocked(prompts).mock.calls[0][0];
+      expect((promptCall as any).message).toContain('filesystem');
+    });
+
+    it('should_provideAllThreeChoices_when_promptDisplayed', async () => {
+      vi.mocked(prompts).mockResolvedValue({ language: 'typescript' });
+
+      await wizard.selectLanguagePerMCP([mockSelectedServers[0]]);
+
+      // Verify prompt has TypeScript, Python, Both choices
+      const promptCall = vi.mocked(prompts).mock.calls[0][0];
+      const choices = (promptCall as any).choices;
+
+      expect(choices).toHaveLength(3);
+      expect(choices.map((c: any) => c.value)).toEqual(['typescript', 'python', 'both']);
+    });
+
+    it('should_preserveServerOrder_when_returningSelections', async () => {
+      vi.mocked(prompts)
+        .mockResolvedValueOnce({ language: 'typescript' })
+        .mockResolvedValueOnce({ language: 'python' });
+
+      const result = await wizard.selectLanguagePerMCP(mockSelectedServers);
+
+      expect(result[0].server.name).toBe('filesystem');
+      expect(result[1].server.name).toBe('github');
+    });
+
+    it('should_returnEmptyArray_when_noServersProvided', async () => {
+      await expect(wizard.selectLanguagePerMCP([])).rejects.toThrow('No servers provided');
+    });
+
+    it('should_handleUnavailableServers_when_includedInList', async () => {
+      const serverWithUnavailableStatus = [
+        {
+          server: {
+            name: 'unavailable-mcp',
+            command: 'missing-command',
+            args: [],
+            sourceTool: 'test',
+          },
+          status: 'unavailable' as const,
+          message: 'Command not found',
+        },
+      ];
+
+      vi.mocked(prompts).mockResolvedValue({ language: 'typescript' });
+
+      const result = await wizard.selectLanguagePerMCP(serverWithUnavailableStatus);
+
+      expect(result[0].language).toBe('typescript');
+      expect(result[0].server.name).toBe('unavailable-mcp');
+    });
+
+    it('should_collectAllSelectionsBeforeReturning_when_multipleServers', async () => {
+      const threeServers = [
+        mockSelectedServers[0],
+        mockSelectedServers[1],
+        {
+          server: {
+            name: 'postgres',
+            command: 'node',
+            args: [],
+            sourceTool: 'windsurf',
+          },
+          status: 'available' as const,
+        },
+      ];
+
+      vi.mocked(prompts)
+        .mockResolvedValueOnce({ language: 'typescript' })
+        .mockResolvedValueOnce({ language: 'python' })
+        .mockResolvedValueOnce({ language: 'both' });
+
+      const result = await wizard.selectLanguagePerMCP(threeServers);
+
+      expect(result).toHaveLength(3);
+      expect(result[0].language).toBe('typescript');
+      expect(result[1].language).toBe('python');
+      expect(result[2].language).toBe('both');
+    });
+  });
 });
