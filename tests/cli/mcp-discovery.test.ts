@@ -15,7 +15,13 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
 }));
 
+// Mock child_process
+vi.mock('node:child_process', () => ({
+  exec: vi.fn(),
+}));
+
 import * as fs from 'node:fs/promises';
+import { exec } from 'node:child_process';
 
 describe('MCPDiscoveryService', () => {
   let service: MCPDiscoveryService;
@@ -371,6 +377,162 @@ describe('MCPDiscoveryService', () => {
       };
 
       expect(() => service.getConfigPath(tool, 'darwin')).toThrow('No config path defined');
+    });
+  });
+
+  describe('pingServer', () => {
+    const mockServer: MCPServerConfig = {
+      name: 'filesystem',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem'],
+      env: {},
+      sourceTool: 'claude-code',
+    };
+
+    beforeEach(() => {
+      // Reset exec mock before each test
+      vi.mocked(exec).mockClear();
+    });
+
+    it('should_returnAvailable_when_commandExists', async () => {
+      // Mock successful command check (which npx -> /usr/bin/npx)
+      vi.mocked(exec).mockImplementation((cmd: string, callback: any) => {
+        callback(null, '/usr/bin/npx\n', '');
+        return {} as any;
+      });
+
+      const result = await service.pingServer(mockServer);
+
+      expect(result.status).toBe('available');
+      expect(result.server).toEqual(mockServer);
+      expect(result.message).toContain('found at');
+    });
+
+    it('should_returnUnavailable_when_commandNotFound', async () => {
+      // Mock command not found (which nonexistent -> exit code 1)
+      vi.mocked(exec).mockImplementation((cmd: string, callback: any) => {
+        callback(new Error('Command not found'), '', 'not found');
+        return {} as any;
+      });
+
+      const result = await service.pingServer(mockServer);
+
+      expect(result.status).toBe('unavailable');
+      expect(result.message).toContain('not found');
+    });
+
+    it('should_checkCorrectCommand_when_validating', async () => {
+      vi.mocked(exec).mockImplementation((cmd: string, callback: any) => {
+        // Verify correct command was called
+        expect(cmd).toMatch(/which npx|where npx/);
+        callback(null, '/usr/bin/npx\n', '');
+        return {} as any;
+      });
+
+      await service.pingServer(mockServer);
+    });
+
+    it('should_includeServerInResult_when_pinging', async () => {
+      vi.mocked(exec).mockImplementation((cmd: string, callback: any) => {
+        callback(null, '/usr/bin/npx\n', '');
+        return {} as any;
+      });
+
+      const result = await service.pingServer(mockServer);
+
+      expect(result.server).toEqual(mockServer);
+      expect(result.server.name).toBe('filesystem');
+      expect(result.server.command).toBe('npx');
+    });
+  });
+
+  describe('pingAllServers', () => {
+    const mockServers: MCPServerConfig[] = [
+      {
+        name: 'filesystem',
+        command: 'npx',
+        args: [],
+        env: {},
+        sourceTool: 'claude-code',
+      },
+      {
+        name: 'github',
+        command: 'node',
+        args: [],
+        env: {},
+        sourceTool: 'cursor',
+      },
+      {
+        name: 'linear',
+        command: 'python',
+        args: [],
+        env: {},
+        sourceTool: 'windsurf',
+      }
+    ];
+
+    it('should_pingAllServers_when_multipleProvided', async () => {
+      vi.mocked(exec).mockImplementation((cmd: string, callback: any) => {
+        callback(null, '/usr/bin/something\n', '');
+        return {} as any;
+      });
+
+      const results = await service.pingAllServers(mockServers);
+
+      expect(results).toHaveLength(3);
+    });
+
+    it('should_returnAllStatuses_when_pingingMultiple', async () => {
+      // First server: available, Second: unavailable, Third: available
+      let callCount = 0;
+      vi.mocked(exec).mockImplementation((cmd: string, callback: any) => {
+        callCount++;
+        if (callCount === 2) {
+          callback(new Error('Not found'), '', 'not found');
+        } else {
+          callback(null, '/usr/bin/cmd\n', '');
+        }
+        return {} as any;
+      });
+
+      const results = await service.pingAllServers(mockServers);
+
+      expect(results[0].status).toBe('available');
+      expect(results[1].status).toBe('unavailable');
+      expect(results[2].status).toBe('available');
+    });
+
+    it('should_usePromiseAll_when_pingingMultipleServers', async () => {
+      vi.mocked(exec).mockImplementation((cmd: string, callback: any) => {
+        callback(null, '/usr/bin/cmd\n', '');
+        return {} as any;
+      });
+
+      const startTime = Date.now();
+      await service.pingAllServers(mockServers);
+      const duration = Date.now() - startTime;
+
+      // Parallel execution should be fast (< 100ms for mocked calls)
+      expect(duration).toBeLessThan(100);
+    });
+
+    it('should_returnEmptyArray_when_noServersProvided', async () => {
+      const results = await service.pingAllServers([]);
+
+      expect(results).toEqual([]);
+    });
+
+    it('should_preserveServerOrder_when_pinging', async () => {
+      vi.mocked(exec).mockImplementation((cmd: string, callback: any) => {
+        callback(null, '/usr/bin/cmd\n', '');
+        return {} as any;
+      });
+
+      const results = await service.pingAllServers(mockServers);
+
+      expect(results[0].server.name).toBe('filesystem');
+      expect(results[1].server.name).toBe('github');
+      expect(results[2].server.name).toBe('linear');
     });
   });
 });

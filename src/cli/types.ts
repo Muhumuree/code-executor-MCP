@@ -108,3 +108,35 @@ export interface MCPConfig {
     env?: Record<string, string>;
   }>;
 }
+
+/**
+ * MCPServerStatus - Status of an MCP server after validation/ping
+ *
+ * **STATES:**
+ * - available: Command exists and can be executed
+ * - unavailable: Command not found or not executable
+ * - unknown: Cannot determine status (validation skipped)
+ */
+export type ServerStatus = 'available' | 'unavailable' | 'unknown';
+
+/**
+ * MCPServerStatusResult - Result of server validation/ping
+ *
+ * **USAGE:** Returned by pingServer() and pingAllServers()
+ */
+export interface MCPServerStatusResult {
+  /**
+   * Server configuration being validated
+   */
+  server: MCPServerConfig;
+
+  /**
+   * Validation status
+   */
+  status: ServerStatus;
+
+  /**
+   * Optional message (error details, validation info)
+   */
+  message?: string;
+}

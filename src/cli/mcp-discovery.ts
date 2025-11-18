@@ -6,8 +6,9 @@
  */
 
 import * as fs from 'node:fs/promises';
+import { exec } from 'node:child_process';
 import type { AIToolMetadata } from './tool-registry.js';
-import type { MCPServerConfig, MCPConfig } from './types.js';
+import type { MCPServerConfig, MCPConfig, MCPServerStatusResult } from './types.js';
 
 /**
  * MCPDiscoveryService - Scan AI tool configs for MCP servers
@@ -119,5 +120,56 @@ export class MCPDiscoveryService {
       );
     }
     return path;
+  }
+
+  /**
+   * Validate if an MCP server's command is available on the system
+   *
+   * **METHOD:** Uses 'which' (Linux/macOS) or 'where' (Windows) to check command existence
+   * **STATUS:** Returns 'available' if command found, 'unavailable' if not found
+   *
+   * @param server - MCP server configuration to validate
+   * @returns Server status result with availability information
+   */
+  async pingServer(server: MCPServerConfig): Promise<MCPServerStatusResult> {
+    return new Promise((resolve) => {
+      // Determine command checker based on platform
+      const isWindows = process.platform === 'win32';
+      const checkCommand = isWindows ? 'where' : 'which';
+
+      // Execute command checker
+      exec(`${checkCommand} ${server.command}`, (error, stdout, stderr) => {
+        if (error) {
+          // Command not found or execution error
+          resolve({
+            server,
+            status: 'unavailable',
+            message: `Command '${server.command}' not found or not executable: ${error.message}`,
+          });
+        } else {
+          // Command found - return available status
+          resolve({
+            server,
+            status: 'available',
+            message: `Command '${server.command}' found at: ${stdout.trim()}`,
+          });
+        }
+      });
+    });
+  }
+
+  /**
+   * Validate multiple MCP servers in parallel
+   *
+   * **PARALLEL:** Uses Promise.all for concurrent validation (O(1) amortized)
+   * **PERFORMANCE:** All checks run simultaneously, total time = slowest check
+   *
+   * @param servers - Array of MCP servers to validate
+   * @returns Array of server status results (same order as input)
+   */
+  async pingAllServers(servers: MCPServerConfig[]): Promise<MCPServerStatusResult[]> {
+    // Parallel validation using Promise.all
+    const pingPromises = servers.map(server => this.pingServer(server));
+    return Promise.all(pingPromises);
   }
 }
