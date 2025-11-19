@@ -39,7 +39,7 @@ export class MCPDiscoveryService {
 
       try {
         configContent = await fs.readFile(actualPath, 'utf-8');
-      } catch (error) {
+      } catch {
         // File not found - ask user for correct path
         console.warn(`\n⚠️  Config file not found: ${configPath}`);
 

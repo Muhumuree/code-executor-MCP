@@ -74,7 +74,7 @@ async function main(): Promise<void> {
 
       // Step 7: Configure MCP server
       console.log('\n⚙️  Configure MCP Server\n');
-      const config = await wizard.askConfigQuestions();
+      await wizard.askConfigQuestions();
 
       console.log(wizard.formatMessage('success', 'Configuration complete'));
 
