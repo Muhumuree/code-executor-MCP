@@ -13,7 +13,7 @@ import kleur from 'kleur';
 import ora, { type Ora } from 'ora';
 import * as path from 'path';
 import type { ToolDetector } from './tool-detector.js';
-import type { AIToolMetadata } from './tool-registry.js';
+import { getSupportedToolsForPlatform, type AIToolMetadata } from './tool-registry.js';
 import type { SetupConfig, MCPServerStatusResult, LanguageSelection, WrapperLanguage, MCPServerSelection } from './types.js';
 import { setupConfigSchema } from './schemas/setup-config.schema.js';
 import type { WrapperGenerator } from './wrapper-generator.js';
@@ -69,24 +69,28 @@ export class CLIWizard {
    * @returns Selected tools in user's selection order
    */
   async selectTools(): Promise<AIToolMetadata[]> {
-    // Detect installed tools
-    const installedTools = await this.toolDetector.detectInstalledTools();
+    // Get all supported tools for current platform
+    const supportedTools = getSupportedToolsForPlatform();
 
-    if (installedTools.length === 0) {
-      throw new Error(
-        'No AI tools detected. Please install at least one supported tool:\n' +
-        '- Claude Code (https://code.claude.com)\n' +
-        '- Cursor (https://cursor.sh)\n' +
-        '- Windsurf (https://windsurf.ai)'
-      );
+    // Detect which ones are actually installed
+    const installedToolIds = new Set<string>();
+    for (const tool of supportedTools) {
+      if (await this.toolDetector.isToolInstalled(tool)) {
+        installedToolIds.add(tool.id);
+      }
     }
 
-    // Create prompt choices from installed tools
-    const choices = installedTools.map(tool => ({
-      title: tool.name,
-      value: tool.id,
-      description: `${tool.description} (${tool.website})`,
-    }));
+    // Create prompt choices showing all supported tools (installed + not installed)
+    const choices = supportedTools
+      .filter(tool => tool.id === 'claude-code' || tool.id === 'cursor') // Only show Claude Code and Cursor for now
+      .map(tool => {
+        const isInstalled = installedToolIds.has(tool.id);
+        return {
+          title: `${tool.name}${isInstalled ? ' ✓' : ' (not detected)'}`,
+          value: tool.id,
+          description: `${tool.description} - ${tool.website}`,
+        };
+      });
 
     // Multi-select prompt with validation
     const response = await prompts({
@@ -109,17 +113,12 @@ export class CLIWizard {
     }
 
     // Map selected IDs back to full metadata, preserving selection order
-    // TypeScript narrows type automatically after guard (no assertion needed)
     const selectedToolIds: string[] = response.selectedTools;
 
     return selectedToolIds.map((id: string) => {
-      const tool = installedTools.find(t => t.id === id);
+      const tool = supportedTools.find(t => t.id === id);
       if (!tool) {
-        throw new Error(
-          `Selected tool '${id}' is no longer available. ` +
-          `It may have been uninstalled after detection. ` +
-          `Please re-run the wizard.`
-        );
+        throw new Error(`Internal error: Selected tool '${id}' not found in registry`);
       }
       return tool;
     });
