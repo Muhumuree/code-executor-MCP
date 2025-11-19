@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🧙 **Interactive CLI Setup Wizard** - One-command setup for code-executor-mcp
   - Run `npm run setup` to automatically configure everything
   - **What it does**:
-    - Discovers MCP servers from your Claude Code config (`~/.claude.json`) AND project config (`.mcp.json`)
+    - Discovers MCP servers from your AI tool configs (Claude Code: `~/.claude.json`, Cursor: `~/.cursor/mcp.json`) AND project config (`.mcp.json`)
     - Merges global and project MCP servers (project overrides global for duplicate names)
     - Generates TypeScript/Python wrappers for easy MCP tool access
     - Creates default configuration (or customize with interactive prompts)
@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Generated from schemas with full JSDoc comments and TypeScript types
     - Eliminates manual tool name lookups and parameter guessing
   - **How they stay updated**:
-    - Optional daily sync re-scans both configs (`~/.claude.json` + `.mcp.json`) for new/removed MCP servers
+    - Optional daily sync re-scans all configs (Claude Code: `~/.claude.json`, Cursor: `~/.cursor/mcp.json`, project: `.mcp.json`) for new/removed MCP servers
     - Regenerates wrappers automatically using platform schedulers:
       - **macOS**: launchd plist (runs at 4-6 AM)
       - **Linux**: systemd timer (runs at 4-6 AM)
@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Zero configuration**: Press Enter to accept smart defaults (port 3333, 30s timeout, 30 req/min rate limit)
   - **Safe to re-run**: Detects existing configs and offers merge/reset/keep options
   - **Cross-platform**: Works on Linux, macOS, and Windows with platform-specific scheduler support
-  - **Claude Code integration**: Currently supports Claude Code (more AI tools coming soon)
+  - **AI tool support**: Claude Code and Cursor (more AI tools coming soon)
 
 ### Fixed
 - Fixed Claude Code config path detection (`~/.claude.json` now resolves correctly on all platforms)

@@ -56,10 +56,11 @@ npm run setup
 ```
 
 The wizard will:
-- ✅ Discover MCP servers from both configs:
-  - Global: `~/.claude.json` (Claude Code personal config)
+- ✅ Discover MCP servers from your AI tool configs:
+  - Claude Code: `~/.claude.json` (global config)
+  - Cursor: `~/.cursor/mcp.json` (global config)
   - Project: `.mcp.json` (project root, team-shared)
-  - Merges both (project overrides global for duplicates)
+  - Merges all (project overrides global for duplicates)
 - ✅ Configure MCP server settings (or use smart defaults - press Enter)
 - ✅ Generate TypeScript/Python wrappers for easy tool access
 - ✅ Set up optional daily sync to keep wrappers updated
@@ -70,7 +71,7 @@ The wizard will:
 - Rate limit: 30 requests/minute
 - Audit logs: `~/.code-executor/audit-logs/`
 
-**Note**: Currently supports Claude Code. More AI tools coming soon.
+**Supported AI Tools**: Claude Code and Cursor (more coming soon)
 
 #### What are Wrappers?
 
@@ -103,7 +104,7 @@ The wizard can set up daily sync (optional) to automatically regenerate wrappers
 - **Linux**: systemd timer runs at 4-6 AM
 - **Windows**: Task Scheduler runs at 4-6 AM
 
-Daily sync re-scans your Claude Code config for new/removed MCP servers and regenerates wrappers. You can also manually update anytime with `npm run setup`.
+Daily sync re-scans your AI tool configs (Claude Code, Cursor) and project config for new/removed MCP servers and regenerates wrappers. You can also manually update anytime with `npm run setup`.
 
 ### Option 2: Manual Configuration
 
