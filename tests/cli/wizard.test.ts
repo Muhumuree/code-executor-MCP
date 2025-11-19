@@ -850,4 +850,103 @@ describe('CLIWizard', () => {
       );
     });
   });
+
+  describe('askDailySyncConfig', () => {
+    it('should_returnNull_when_userDeclinesDailySync', async () => {
+      // Arrange
+      vi.mocked(prompts).mockResolvedValueOnce({ enabled: false });
+
+      // Act
+      const result = await wizard.askDailySyncConfig();
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should_returnDefaultTime_when_userAcceptsWithDefault', async () => {
+      // Arrange
+      vi.mocked(prompts)
+        .mockResolvedValueOnce({ enabled: true })
+        .mockResolvedValueOnce({ syncTime: '05:00' });
+
+      // Act
+      const result = await wizard.askDailySyncConfig();
+
+      // Assert
+      expect(result).toEqual({
+        enabled: true,
+        syncTime: '05:00',
+      });
+    });
+
+    it('should_returnCustomTime_when_userProvides4AM', async () => {
+      // Arrange
+      vi.mocked(prompts)
+        .mockResolvedValueOnce({ enabled: true })
+        .mockResolvedValueOnce({ syncTime: '04:00' });
+
+      // Act
+      const result = await wizard.askDailySyncConfig();
+
+      // Assert
+      expect(result).toEqual({
+        enabled: true,
+        syncTime: '04:00',
+      });
+    });
+
+    it('should_returnCustomTime_when_userProvides6AM', async () => {
+      // Arrange
+      vi.mocked(prompts)
+        .mockResolvedValueOnce({ enabled: true })
+        .mockResolvedValueOnce({ syncTime: '06:00' });
+
+      // Act
+      const result = await wizard.askDailySyncConfig();
+
+      // Assert
+      expect(result).toEqual({
+        enabled: true,
+        syncTime: '06:00',
+      });
+    });
+
+    it('should_returnNull_when_userCancels', async () => {
+      // Arrange
+      vi.mocked(prompts)
+        .mockResolvedValueOnce({ enabled: true })
+        .mockResolvedValueOnce({}); // User pressed Ctrl+C
+
+      // Act
+      const result = await wizard.askDailySyncConfig();
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should_validateTimeFormat', async () => {
+      // Arrange
+      const mockPrompts = vi.mocked(prompts);
+      mockPrompts.mockResolvedValueOnce({ enabled: true });
+      mockPrompts.mockResolvedValueOnce({ syncTime: '05:00' });
+
+      // Act
+      await wizard.askDailySyncConfig();
+
+      // Assert - Verify validation function was provided
+      expect(mockPrompts).toHaveBeenCalledTimes(2);
+      const timePromptCall = mockPrompts.mock.calls[1]![0] as any;
+      expect(timePromptCall).toHaveProperty('validate');
+
+      // Test the validation function
+      const validate = timePromptCall.validate;
+      expect(validate('invalid')).toContain('Invalid time format');
+      expect(validate('03:59')).toContain('must be between 04:00 and 06:00');
+      expect(validate('07:00')).toContain('must be between 04:00 and 06:00');
+      expect(validate('06:01')).toContain('must be between 04:00 and 06:00');
+      expect(validate('04:00')).toBe(true);
+      expect(validate('05:30')).toBe(true);
+      expect(validate('06:00')).toBe(true);
+    });
+  });
 });

@@ -582,4 +582,83 @@ export class CLIWizard {
       console.log('');
     }
   }
+
+  /**
+   * Ask daily sync configuration
+   *
+   * **BEHAVIOR:**
+   * 1. Prompt: "Enable daily wrapper sync? (Y/n)" - default Yes
+   * 2. If yes, prompt: "Preferred sync time (4-6 AM):" - default 05:00
+   * 3. Validate sync time: HH:MM format, 4-6 AM range
+   * 4. Return config object or null if disabled
+   *
+   * **VALIDATION:**
+   * - Sync time format: HH:MM (24-hour)
+   * - Sync time range: 04:00 to 06:00 (inclusive)
+   * - Retry on invalid input
+   *
+   * @returns Promise<DailySyncConfig | null> Configuration or null if disabled
+   *
+   * @example
+   * const config = await wizard.askDailySyncConfig();
+   * if (config) {
+   *   console.log(`Daily sync enabled at ${config.syncTime}`);
+   * }
+   */
+  async askDailySyncConfig(): Promise<import('./types.js').DailySyncConfig | null> {
+    // Prompt 1: Enable daily sync?
+    const enableResponse = await prompts({
+      type: 'confirm',
+      name: 'enabled',
+      message: 'Enable daily wrapper sync?',
+      initial: true, // Default: Yes
+    });
+
+    // If user declined or cancelled (Ctrl+C)
+    if (!enableResponse.enabled) {
+      return null;
+    }
+
+    // Prompt 2: Sync time (4-6 AM)
+    const timeResponse = await prompts({
+      type: 'text',
+      name: 'syncTime',
+      message: 'Preferred sync time (4-6 AM):',
+      initial: '05:00',
+      validate: (value: string) => {
+        // Validate format: HH:MM
+        const timeRegex = /^(\d{2}):(\d{2})$/;
+        const match = value.match(timeRegex);
+
+        if (!match) {
+          return 'Invalid time format. Please use HH:MM format (e.g., 05:00)';
+        }
+
+        const hours = parseInt(match[1]!, 10);
+        const minutes = parseInt(match[2]!, 10);
+
+        // Validate range: 4-6 AM (04:00 to 06:00 inclusive)
+        if (hours < 4 || hours > 6 || (hours === 6 && minutes > 0)) {
+          return 'Sync time must be between 04:00 and 06:00';
+        }
+
+        // Validate minutes range (00-59)
+        if (minutes < 0 || minutes > 59) {
+          return 'Invalid minutes. Please use 00-59';
+        }
+
+        return true;
+      },
+    });
+
+    // If user cancelled (Ctrl+C)
+    if (!timeResponse.syncTime) {
+      return null;
+    }
+
+    return {
+      enabled: true,
+      syncTime: timeResponse.syncTime,
+    };
+  }
 }

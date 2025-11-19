@@ -461,3 +461,22 @@ export interface ISyncScheduler {
    */
   exists(): Promise<boolean>;
 }
+
+/**
+ * DailySyncConfig - Configuration for daily MCP wrapper sync
+ *
+ * **USAGE:** Returned by CLIWizard.askDailySyncConfig()
+ */
+export interface DailySyncConfig {
+  /**
+   * Whether daily sync is enabled
+   */
+  enabled: boolean;
+
+  /**
+   * Sync time in HH:MM format (4-6 AM range)
+   *
+   * **EXAMPLE:** '05:00'
+   */
+  syncTime: string;
+}
