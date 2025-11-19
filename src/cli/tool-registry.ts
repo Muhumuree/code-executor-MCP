@@ -42,9 +42,9 @@ export const AI_TOOL_REGISTRY: readonly AIToolMetadata[] = [
     name: 'Claude Code',
     description: 'Anthropic\'s official CLI for Claude',
     configPaths: {
-      linux: '~/.claude/CLAUDE.md',
-      darwin: '~/Library/Application Support/Claude/CLAUDE.md',
-      win32: '%APPDATA%\\Claude\\CLAUDE.md',
+      linux: '~/.claude.json',
+      darwin: '~/.claude.json',
+      win32: '%USERPROFILE%\\.claude.json',
     },
     website: 'https://code.claude.com',
   },

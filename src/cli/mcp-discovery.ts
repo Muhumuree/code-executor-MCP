@@ -6,7 +6,9 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import { exec } from 'node:child_process';
+import prompts from 'prompts';
 import type { AIToolMetadata } from './tool-registry.js';
 import type { MCPServerConfig, MCPConfig, MCPServerStatusResult } from './types.js';
 
@@ -33,12 +35,35 @@ export class MCPDiscoveryService {
 
       // Read and parse config file
       let configContent: string;
+      let actualPath = configPath;
+
       try {
-        configContent = await fs.readFile(configPath, 'utf-8');
+        configContent = await fs.readFile(actualPath, 'utf-8');
       } catch (error) {
-        // File not found or permission denied
-        console.error(`Failed to read config file at ${configPath}:`, error);
-        return [];
+        // File not found - ask user for correct path
+        console.warn(`\n⚠️  Config file not found: ${configPath}`);
+
+        const response = await prompts({
+          type: 'text',
+          name: 'path',
+          message: `Enter config file path for ${tool.name} (or press Enter to skip)`,
+          initial: '',
+        });
+
+        // User cancelled or skipped
+        if (!response || !response.path) {
+          console.log(`Skipping ${tool.name} MCP discovery`);
+          return [];
+        }
+
+        // Try user-provided path
+        actualPath = response.path;
+        try {
+          configContent = await fs.readFile(actualPath, 'utf-8');
+        } catch (pathError) {
+          console.error(`Failed to read config at ${actualPath}:`, pathError);
+          return [];
+        }
       }
 
       // Parse JSON with error context
@@ -119,7 +144,12 @@ export class MCPDiscoveryService {
         `Available platforms: ${Object.keys(tool.configPaths).join(', ')}`
       );
     }
-    return path;
+
+    // Expand ~ and environment variables
+    return path
+      .replace(/^~/, os.homedir())
+      .replace(/%USERPROFILE%/g, process.env.USERPROFILE || '')
+      .replace(/%APPDATA%/g, process.env.APPDATA || '');
   }
 
   /**

@@ -137,13 +137,35 @@ export class CLIWizard {
    * @returns SetupConfig object with validated configuration
    */
   async askConfigQuestions(): Promise<SetupConfig> {
+    // Ask if user wants to use defaults
+    const useDefaultsResponse = await prompts({
+      type: 'confirm',
+      name: 'useDefaults',
+      message: 'Use default configuration?',
+      initial: true,
+    });
+
+    // If user cancelled or wants defaults, return default config
+    if (!useDefaultsResponse || useDefaultsResponse.useDefaults !== false) {
+      return {
+        proxyPort: 3333,
+        executionTimeout: 30000,
+        rateLimit: 30,
+        auditLogPath: '~/.code-executor/audit-logs/audit.jsonl',
+        schemaCacheTTL: 86400000, // 24 hours (in milliseconds)
+      };
+    }
+
+    // Otherwise, ask detailed questions
+    console.log('\n⚙️  Advanced Configuration\n');
+
     // Proxy Port
     const proxyPort = this.validateResponse(
       await prompts({
         type: 'number',
         name: 'proxyPort',
         message: 'Proxy server port',
-        initial: 3000,
+        initial: 3333,
         validate: (value: number) => {
           if (value < 1024 || value > 65535) {
             return 'Port must be between 1024 and 65535 (unprivileged ports)';
@@ -754,7 +776,7 @@ export class CLIWizard {
         horizontalLayout: 'default',
         verticalLayout: 'default',
       });
-      return kleur.cyan(banner);
+      return kleur.yellow(banner); // Orange-ish (closest to Claude orange)
     } catch {
       // Fallback if figlet fails
       return kleur.bold().cyan('=== Code Executor MCP Setup Wizard ===');
@@ -789,7 +811,7 @@ export class CLIWizard {
       case 'warning':
         return kleur.yellow(`⚠ ${message}`);
       case 'info':
-        return kleur.blue(`ℹ ${message}`);
+        return kleur.yellow(`ℹ ${message}`); // Orange-ish (closest to Claude orange)
       default:
         return message;
     }
@@ -854,7 +876,7 @@ export class CLIWizard {
    */
   createProgressBar(total: number, label: string): cliProgress.SingleBar {
     return new cliProgress.SingleBar({
-      format: `${kleur.cyan(label)} |${kleur.cyan('{bar}')}| {percentage}% | {value}/{total}`,
+      format: `${kleur.yellow(label)} |${kleur.yellow('{bar}')}| {percentage}% | {value}/{total}`,
       barCompleteChar: '█',
       barIncompleteChar: '░',
       hideCursor: true,
@@ -904,13 +926,13 @@ export class CLIWizard {
     // Tools configured
     lines.push(kleur.bold('AI Tools Configured:'));
     summary.toolsConfigured.forEach((tool) => {
-      lines.push(kleur.cyan(`  ✓ ${tool}`));
+      lines.push(kleur.yellow(`  ✓ ${tool}`)); // Orange-ish (closest to Claude orange)
     });
     lines.push('');
 
     // MCP discovery
     lines.push(kleur.bold('MCP Servers:'));
-    lines.push(kleur.cyan(`  ${summary.mcpsDiscovered} servers discovered`));
+    lines.push(kleur.yellow(`  ${summary.mcpsDiscovered} servers discovered`)); // Orange-ish (closest to Claude orange)
     lines.push('');
 
     // Wrapper generation
@@ -1027,7 +1049,7 @@ export class CLIWizard {
           value: 'keep',
         },
         {
-          title: kleur.blue('Merge new MCPs') + kleur.gray(' - Add new MCP servers to existing configs'),
+          title: kleur.yellow('Merge new MCPs') + kleur.gray(' - Add new MCP servers to existing configs'), // Orange-ish
           value: 'merge',
         },
         {
