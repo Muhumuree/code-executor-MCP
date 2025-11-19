@@ -1,0 +1,90 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Code Executor MCP: Daily Sync",
+      "type": "shell",
+      "command": "npx",
+      "args": [
+        "code-executor-mcp",
+        "sync-wrappers"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "showReuseMessage": false
+      },
+      "runOptions": {
+        "runOn": "default"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "detail": "Manually trigger MCP wrapper regeneration (checks for schema changes)",
+      "icon": {
+        "id": "sync",
+        "color": "terminal.ansiBlue"
+      }
+    },
+    {
+      "label": "Code Executor MCP: Force Regenerate All",
+      "type": "shell",
+      "command": "npx",
+      "args": [
+        "code-executor-mcp",
+        "sync-wrappers",
+        "--force"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "showReuseMessage": false
+      },
+      "runOptions": {
+        "runOn": "default"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "detail": "Force regenerate ALL wrappers (ignores schema hashes)",
+      "icon": {
+        "id": "refresh",
+        "color": "terminal.ansiYellow"
+      }
+    },
+    {
+      "label": "Code Executor MCP: Setup Wizard",
+      "type": "shell",
+      "command": "npx",
+      "args": [
+        "code-executor-mcp",
+        "setup"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "showReuseMessage": false
+      },
+      "runOptions": {
+        "runOn": "default"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "detail": "Run interactive CLI setup wizard",
+      "icon": {
+        "id": "wand",
+        "color": "terminal.ansiMagenta"
+      }
+    }
+  ]
+}
