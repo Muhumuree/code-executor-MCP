@@ -661,4 +661,59 @@ export class CLIWizard {
       syncTime: timeResponse.syncTime,
     };
   }
+
+  /**
+   * Generate VS Code task configuration
+   *
+   * **BEHAVIOR:**
+   * 1. Create .vscode directory if it doesn't exist
+   * 2. Copy vscode-tasks.json template to .vscode/tasks.json
+   * 3. Merge with existing tasks if file already exists
+   *
+   * **USAGE:** Called after daily sync setup to provide manual sync task
+   *
+   * @param projectRoot Absolute path to project root directory
+   * @returns Promise<void>
+   *
+   * @example
+   * await wizard.generateVSCodeTasks('/home/user/my-project');
+   */
+  async generateVSCodeTasks(projectRoot: string): Promise<void> {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+
+    // Create .vscode directory if it doesn't exist
+    const vscodeDir = path.join(projectRoot, '.vscode');
+    await fs.mkdir(vscodeDir, { recursive: true });
+
+    // Read template
+    const templatePath = path.join(__dirname, '..', '..', 'templates', 'vscode-tasks.json');
+    const templateContent = await fs.readFile(templatePath, 'utf8');
+    const templateTasks = JSON.parse(templateContent);
+
+    // Check if tasks.json already exists
+    const tasksPath = path.join(vscodeDir, 'tasks.json');
+    let finalTasks = templateTasks;
+
+    try {
+      const existingContent = await fs.readFile(tasksPath, 'utf8');
+      const existingTasks = JSON.parse(existingContent);
+
+      // Merge tasks (append new tasks to existing)
+      if (existingTasks.tasks && Array.isArray(existingTasks.tasks)) {
+        finalTasks = {
+          ...existingTasks,
+          tasks: [...existingTasks.tasks, ...templateTasks.tasks],
+        };
+      }
+    } catch (error) {
+      // File doesn't exist or is invalid JSON - use template as-is
+    }
+
+    // Write merged tasks
+    await fs.writeFile(tasksPath, JSON.stringify(finalTasks, null, 2));
+
+    console.log(`✅ VS Code tasks generated: ${tasksPath}`);
+    console.log('   Run "Tasks: Run Task" in VS Code to use them');
+  }
 }
