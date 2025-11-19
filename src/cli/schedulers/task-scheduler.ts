@@ -20,7 +20,7 @@
 
 import { spawn } from 'child_process';
 import * as path from 'path';
-import type { ISyncScheduler } from '../types';
+import type { ISyncScheduler } from '../types.js';
 
 export class TaskSchedulerWrapper implements ISyncScheduler {
   /**
@@ -74,8 +74,8 @@ export class TaskSchedulerWrapper implements ISyncScheduler {
       throw new Error('syncTime must be in HH:MM format');
     }
 
-    const hours = parseInt(match[1], 10);
-    const minutes = parseInt(match[2], 10);
+    const hours = parseInt(match[1]!, 10);
+    const minutes = parseInt(match[2]!, 10);
 
     // Validation: syncTime must be 4-6 AM range (inclusive)
     if (hours < 4 || hours > 6 || (hours === 6 && minutes > 0)) {

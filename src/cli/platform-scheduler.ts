@@ -15,10 +15,10 @@
  * ```
  */
 
-import type { ISyncScheduler } from './types';
-import { SystemdScheduler } from './schedulers/systemd-scheduler';
-import { LaunchdScheduler } from './schedulers/launchd-scheduler';
-import { TaskSchedulerWrapper } from './schedulers/task-scheduler';
+import type { ISyncScheduler } from './types.js';
+import { SystemdScheduler } from './schedulers/systemd-scheduler.js';
+import { LaunchdScheduler } from './schedulers/launchd-scheduler.js';
+import { TaskSchedulerWrapper } from './schedulers/task-scheduler.js';
 
 /**
  * Supported platform types for daily sync timers
