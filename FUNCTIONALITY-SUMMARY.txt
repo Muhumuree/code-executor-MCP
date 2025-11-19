@@ -1,0 +1,331 @@
+CODEBASE FUNCTIONALITY AUDIT - EXECUTIVE SUMMARY
+================================================
+
+Analyzed: /home/alexandrueremia/projects/code-executor-mcp/src (all TypeScript files)
+Date: 2025-11-18
+Status: PRODUCTION-READY implementations identified for most CLI needs
+
+================================================================================
+CATEGORY 1: FILE SYSTEM OPERATIONS
+================================================================================
+
+✅ PATH CANONICALIZATION & SYMLINK RESOLUTION
+   Location: src/utils.ts:172-205
+   Function: isAllowedPath(path: string, allowedRoots: string[]): Promise<boolean>
+   Features:
+     • fs.realpath() resolves symlinks
+     • Prevents ../ directory traversal attacks
+     • OS-agnostic path separator
+     • Graceful handling of non-existent paths
+   LIMITATION: Async-only (use for CLI with await)
+   REUSABILITY: ✅ High - Copy directly
+
+✅ SCHEMA CACHE DISK PERSISTENCE
+   Location: src/schema-cache.ts:69-132
+   Methods: loadFromDisk(), saveToDisk()
+   Features:
+     • LRU cache with max 1000 entries (prevents unbounded growth)
+     • 24-hour TTL with failure-triggered refresh
+     • AsyncLock protection for concurrent writes
+     • Directory auto-creation (mkdir recursive)
+   Disk Location: ~/.code-executor/schema-cache.json
+   LIMITATION: No backup before write, no versioning
+   REUSABILITY: ✅ Medium - Use as reference for disk I/O patterns
+
+❌ BACKUP SERVICE (NOT FOUND)
+   Status: Not implemented in codebase
+   RECOMMENDATION: Build new (see CLI-REUSE-GUIDE.md)
+
+================================================================================
+CATEGORY 2: CONFIGURATION FILE MANAGEMENT
+================================================================================
+
+✅ CONFIGURATION DISCOVERY & VALIDATION (PRODUCTION-READY)
+   Location: src/config-discovery.ts + src/config-types.ts
+   Class: ConfigDiscoveryService
+   Features:
+     • Multi-source discovery (project → user → defaults)
+     • Cascading configuration merge
+     • Environment variable overrides
+     • Zod schema validation with bounds checking
+     • Caching (single-instance pattern)
+   Supported Config Files:
+     - .code-executor.json (project level)
+     - ~/.code-executor.json (user level)
+     - ~/.config/code-executor/config.json (XDG standard)
+     - .mcp.json (MCP servers)
+   Supported Env Vars:
+     - CODE_EXECUTOR_CONFIG_PATH
+     - MCP_CONFIG_PATH
+     - ALLOWED_PROJECTS (colon-sep)
+     - ENABLE_AUDIT_LOG, AUDIT_LOG_PATH
+     - AUDIT_LOG_RETENTION_DAYS
+     - DENO_PATH, POOL_MAX_CONCURRENT, POOL_QUEUE_SIZE, etc.
+   JSON Parsing:
+     - fs.readFile(path, 'utf-8')
+     - JSON.parse(content)
+     - Zod validation on result
+   LIMITATION: Read-only (no write capability)
+   REUSABILITY: ✅ High - Copy ConfigDiscoveryService directly
+
+✅ CONFIGURATION ACCESS API (PRODUCTION-READY)
+   Location: src/config.ts
+   Functions:
+     • getConfig() - Get validated config
+     • getAllowedReadPaths() - Get read paths
+     • getAllowedWritePaths() - Get write paths (returns false if disabled)
+     • getPoolConfig() - Get connection pool config with bounds validation
+     • getRateLimitConfig() - Get rate limit settings
+     • getDenoPath(), getPythonPath() - Get executor paths
+   Validation:
+     • Zod schema validation
+     • Bounds checking (min/max enforced)
+     • Default values for all fields
+     • Clear error messages on validation failure
+   REUSABILITY: ✅ High - Use existing functions
+
+❌ CONFIG FILE WRITE (NOT FOUND)
+   Status: Only read exists; write not implemented
+   RECOMMENDATION: Build new with atomic write + backup (see CLI-REUSE-GUIDE.md)
+
+================================================================================
+CATEGORY 3: LOCK FILE MANAGEMENT
+================================================================================
+
+❌ PID-BASED LOCKING (NOT FOUND)
+   Status: Completely missing from codebase
+   WHAT EXISTS INSTEAD: AsyncLock (for intra-process mutex, not inter-process)
+   Location: async-lock library (external dependency)
+   Limitation: Works only within single Node.js process; NOT suitable for CLI
+   RECOMMENDATION: Build new PID-based locking service (see CLI-REUSE-GUIDE.md)
+   Implementation Details:
+     • Create lock file: ~/.code-executor/.lock with PID
+     • Check process existence: process.kill(pid, 0)
+     • Detect stale locks: Configurable timeout (default 1 hour)
+     • Clean up: Remove lock file on exit
+
+✅ AsyncLock Usage Pattern (INTRA-PROCESS ONLY)
+   Location: Multiple (schema-cache.ts, audit-logger.ts)
+   Usage:
+     const lock = new AsyncLock();
+     await lock.acquire('key', async () => {
+       // Protected code (no concurrent access)
+     });
+   LIMITATION: Does NOT work across processes
+   REUSABILITY: ✅ Reference for concurrency patterns within single process
+
+================================================================================
+CATEGORY 4: AUDIT LOGGING (PRODUCTION-READY)
+================================================================================
+
+✅ APPEND-ONLY AUDIT LOG (PRODUCTION-READY)
+   Location: src/audit-logger.ts
+   Class: AuditLogger implements IAuditLogger
+   Features:
+     • Daily log rotation (audit-YYYY-MM-DD.log format)
+     • 30-day retention (configurable via AUDIT_LOG_RETENTION_DAYS env var)
+     • JSONL format (one JSON object per line - streaming-friendly)
+     • AsyncLock protection for concurrent writes
+     • Automatic cleanup of old logs
+     • Directory creation (recursive, atomic)
+   Log Writing:
+     • fs.appendFile() - Atomic append operation
+     • JSON.stringify(entry) + '\n' - JSONL format
+     • Protected by AsyncLock.acquire('log-write', ...)
+   Rotation:
+     • Runs at midnight UTC (automatic with new log files)
+     • Detects rotation via getLogFilename()
+     • No manual rotation needed
+   Cleanup:
+     • Automatic background task
+     • Deletes logs older than retention period
+     • Continues on partial failures
+   Log Entries:
+     Interface: AuditLogEntry
+     Fields:
+       • timestamp: ISO 8601 UTC
+       • correlationId: For distributed tracing
+       • eventType: 'auth_failure', 'rate_limited', 'circuit_open', etc.
+       • clientId: SHA-256 hashed (never plaintext API key)
+       • toolName: MCP tool called
+       • paramsHash: SHA-256 hash (audit without sensitive data)
+       • status: 'success' | 'failure' | 'rejected'
+       • errorMessage: Sanitized (no secrets/stacks)
+       • latencyMs: Request duration
+   Security:
+     • No sensitive data logged (SHA-256 hashing)
+     • Timestamp format: UTC for consistency
+     • Correlation ID: Request tracing
+     • Audit trail: All operations logged with status
+   Default Location: ~/.code-executor/audit-logs/
+   Example File Structure:
+     ~/.code-executor/audit-logs/
+     ├── audit-2025-11-18.log (today)
+     ├── audit-2025-11-17.log
+     └── audit-2025-10-19.log (30 days old, cleaned up)
+   Example JSONL Format:
+     {"timestamp":"2025-11-18T10:30:00Z","correlationId":"req-123",...}
+     {"timestamp":"2025-11-18T10:30:15Z","correlationId":"req-124",...}
+   REUSABILITY: ✅ High - Copy AuditLogger class directly
+
+================================================================================
+EXISTING IMPLEMENTATIONS SUMMARY TABLE
+================================================================================
+
+Component              | File                    | Reusable | Effort | Notes
+-----------------------|-------------------------|----------|--------|---------------------------
+Path canonicalization  | src/utils.ts            | ✅ High  | 5 min  | Async only
+Config discovery       | src/config-discovery.ts | ✅ High  | 5 min  | Read-only
+Config validation      | src/config-types.ts     | ✅ High  | 5 min  | Zod schemas
+Config access API      | src/config.ts           | ✅ High  | 5 min  | Direct use
+Audit logging          | src/audit-logger.ts     | ✅ High  | 10 min | Copy class
+Error normalization    | src/utils.ts            | ✅ High  | 2 min  | Utility
+AsyncLock patterns     | src/schema-cache.ts     | ✅ Medium| 15 min | Reference
+Backup service         | NOT FOUND               | ❌ N/A   | 30 min | Build new
+Config file write      | NOT FOUND               | ❌ N/A   | 20 min | Build new
+PID-based locking      | NOT FOUND               | ❌ N/A   | 45 min | Build new
+
+================================================================================
+QUICK COPY-PASTE LOCATIONS
+================================================================================
+
+DIRECT REUSE (no modifications):
+  1. AuditLogger
+     - File: src/audit-logger.ts (lines 74-278)
+     - Dependency: async-lock
+
+  2. ConfigDiscoveryService
+     - File: src/config-discovery.ts (lines 46-332)
+     - Dependency: none (uses fs, path, os)
+
+  3. Path canonicalization
+     - File: src/utils.ts (lines 172-205)
+     - Dependency: fs/promises
+
+  4. Error normalization
+     - File: src/utils.ts (lines 280-321)
+     - Dependency: none (pure utility)
+
+ADAPT BEFORE REUSE:
+  1. ConfigSchema validation
+     - File: src/config-types.ts (lines 95-102)
+     - Reason: May need CLI-specific fields
+
+MUST BUILD NEW:
+  1. PID-based locking service
+     - See: CLI-REUSE-GUIDE.md (section "Missing 2")
+     - Estimated effort: 45 min
+     - Dependencies: fs, path, os
+
+  2. Atomic config file write
+     - See: CLI-REUSE-GUIDE.md (section "Missing 1")
+     - Estimated effort: 20 min
+     - Includes: Backup creation + atomic rename
+
+================================================================================
+DEPENDENCIES USED BY EXISTING CODE
+================================================================================
+
+async-lock ^1.4.1        Used by: AuditLogger, SchemaCache (for mutex)
+zod ^3.x.x              Used by: ConfigDiscoveryService, ConfigSchema
+lru-cache ^10.x.x       Used by: SchemaCache (not needed for CLI parts)
+
+Node.js Built-ins:
+  fs/promises              fs.readFile, fs.writeFile, fs.mkdir, fs.appendFile
+  path                     path.join, path.resolve, path.dirname, path.sep
+  os                       os.homedir()
+  crypto                   crypto.createHash (for SHA-256)
+
+================================================================================
+ENVIRONMENT VARIABLE REFERENCE
+================================================================================
+
+Config Discovery:
+  CODE_EXECUTOR_CONFIG_PATH      Override default config path
+  MCP_CONFIG_PATH                Override default MCP config path
+
+Security:
+  ALLOWED_PROJECTS              Colon-separated allowed paths
+  ENABLE_AUDIT_LOG              Boolean (true/false)
+  AUDIT_LOG_PATH                Path to audit log directory
+
+Audit Logging:
+  AUDIT_LOG_RETENTION_DAYS      Integer (1-365, default 30)
+
+Executors:
+  DENO_PATH                     Path to deno executable
+
+Connection Pool:
+  POOL_MAX_CONCURRENT           Integer (1-1000, default 100)
+  POOL_QUEUE_SIZE               Integer (1-1000, default 200)
+  POOL_QUEUE_TIMEOUT_MS         Integer (1000-300000, default 30000)
+
+System:
+  HOME                          Home directory (used for config/logs)
+  USERPROFILE                   Windows home directory fallback
+
+================================================================================
+GOTCHAS & IMPORTANT NOTES
+================================================================================
+
+1. AsyncLock is NOT inter-process
+   - Works only within single Node.js process
+   - For CLI cross-process safety, implement PID-based locking
+
+2. Path validation is ASYNC
+   - isAllowedPath() returns Promise<boolean>
+   - Remember to await it
+
+3. Config is cached (singleton)
+   - ConfigDiscoveryService caches config in memory
+   - Call clearCache() if needed for testing
+
+4. Audit logs are IMMUTABLE
+   - Append-only design
+   - Cannot modify existing entries
+   - Can only be deleted (cleanup by age)
+
+5. JSONL format has no array wrapper
+   - One JSON object per line
+   - Good for streaming parsers
+   - Bad for array operations (requires line-by-line parsing)
+
+6. Symlinks are resolved automatically
+   - isAllowedPath() uses fs.realpath()
+   - Prevents symlink escape attacks
+   - Non-existent paths return false gracefully
+
+7. Backup timing is critical
+   - Always create backup BEFORE writing
+   - If write fails midway, backup is still intact
+   - Atomic rename ensures no partial files
+
+8. Lock timeouts prevent deadlocks
+   - PID-based locks should have timeout (default 1 hour)
+   - Check if process still exists before blocking
+   - Stale locks should be auto-removed
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. READ: CODEBASE-FUNCTIONALITY-AUDIT.md (full details)
+2. READ: CLI-REUSE-GUIDE.md (copy-paste solutions)
+3. COPY: AuditLogger + ConfigDiscoveryService
+4. BUILD: PID-based locking (see CLI-REUSE-GUIDE.md section 2)
+5. BUILD: Config file write with backup (see CLI-REUSE-GUIDE.md section 1)
+6. TEST: Integration tests for lock contention, config writes, etc.
+
+================================================================================
+DOCUMENT LOCATIONS
+================================================================================
+
+CODEBASE-FUNCTIONALITY-AUDIT.md   (Full detailed audit - 600+ lines)
+CLI-REUSE-GUIDE.md                (Quick copy-paste solutions)
+FUNCTIONALITY-SUMMARY.txt         (This file - executive summary)
+
+All at: /home/alexandrueremia/projects/code-executor-mcp/
+
+================================================================================
+End of Summary
+================================================================================
