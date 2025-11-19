@@ -19,7 +19,7 @@
 import { promises as fs } from 'fs';
 import { createHash } from 'crypto';
 import * as path from 'path';
-import type { WrapperManifest, WrapperEntry, MCPServerSelection, ModuleFormat } from './types.js';
+import type { WrapperManifest, WrapperEntry } from './types.js';
 import { WrapperGenerator } from './wrapper-generator.js';
 
 /**
@@ -359,7 +359,7 @@ export class DailySyncService {
    * @param wrapper Wrapper entry from manifest
    * @returns Promise<boolean> true if regeneration succeeded, false otherwise
    */
-  private async regenerateWrapper(wrapper: WrapperEntry): Promise<boolean> {
+  private async regenerateWrapper(_wrapper: WrapperEntry): Promise<boolean> {
     // TODO: Implement full wrapper regeneration (see implementation note above)
     // For now, return success (stub)
     return true;

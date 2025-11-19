@@ -4,6 +4,20 @@ import * as os from 'os';
 import AsyncLock from 'async-lock';
 
 /**
+ * Error thrown when lock acquisition times out (lock held by another process)
+ */
+export class LockTimeoutError extends Error {
+  constructor(
+    public readonly pid: number,
+    public readonly elapsed: number,
+    public readonly attempts: number,
+  ) {
+    super(`Lock held by process ${pid} (waited ${Math.round(elapsed / 1000)}s, ${attempts} attempts)`);
+    this.name = 'LockTimeoutError';
+  }
+}
+
+/**
  * PID-based lock file service for preventing concurrent wizard runs.
  *
  * Uses process ID (PID) to detect if lock is held by running process.
@@ -34,7 +48,9 @@ export class LockFileService {
    * - Process no longer exists (zombie lock)
    * - Lock older than timeout (hung process)
    *
-   * @throws Error if lock held by running process for >5s or max retries exceeded
+   * @returns {Promise<void>} Resolves when lock acquired successfully
+   * @throws {LockTimeoutError} If lock held by another process after 5s timeout
+   * @throws {Error} Filesystem errors (permissions, disk full, etc.)
    */
   async acquire(): Promise<void> {
     const startTime = Date.now();
@@ -109,13 +125,16 @@ export class LockFileService {
           // Process still running and lock is recent - wait or throw
           const elapsed = Date.now() - startTime;
           if (elapsed > 5000) {
-            throw new Error(
-              `Lock held by process ${pidNum} (waited ${Math.round(elapsed / 1000)}s, ${attempts} attempts)`
-            );
+            throw new LockTimeoutError(pidNum, elapsed, attempts);
           }
 
           await this.sleep(100, attempts);
         } catch (readError: unknown) {
+          // Rethrow timeout errors (lock held for too long)
+          if (readError instanceof LockTimeoutError) {
+            throw readError;
+          }
+
           const nodeReadError = readError as NodeJS.ErrnoException;
           if (nodeReadError.code === 'ENOENT') {
             // Lock removed between checks - retry

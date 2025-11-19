@@ -1129,14 +1129,20 @@ describe('CLIWizard', () => {
         // Arrange
         const wizard = new CLIWizard(toolDetector);
         const tools = [
-          { id: 'claude-code', name: 'Claude Code', configPath: '/nonexistent/.claude.json' } as AIToolMetadata,
+          { id: 'claude-code', name: 'Claude Code', configPaths: { linux: '/nonexistent/.claude.json', darwin: '/nonexistent/.claude.json', win32: '/nonexistent/.claude.json' } } as AIToolMetadata,
         ];
 
         // Act
         const result = await wizard.detectExistingConfigs(tools);
 
         // Assert
-        expect(result).toEqual([]);
+        expect(result).toEqual([
+          expect.objectContaining({
+            toolId: 'claude-code',
+            exists: false,
+            valid: false,
+          }),
+        ]);
       });
 
       it('should_returnToolIds_when_configsExist', async () => {
@@ -1154,12 +1160,12 @@ describe('CLIWizard', () => {
           {
             id: 'claude-code',
             name: 'Claude Code',
-            configPath: { linux: claudeConfigPath, darwin: claudeConfigPath, win32: claudeConfigPath },
+            configPaths: { linux: claudeConfigPath, darwin: claudeConfigPath, win32: claudeConfigPath },
           } as AIToolMetadata,
           {
             id: 'cursor',
             name: 'Cursor',
-            configPath: { linux: cursorConfigPath, darwin: cursorConfigPath, win32: cursorConfigPath },
+            configPaths: { linux: cursorConfigPath, darwin: cursorConfigPath, win32: cursorConfigPath },
           } as AIToolMetadata,
         ];
 
@@ -1183,7 +1189,7 @@ describe('CLIWizard', () => {
         // Arrange
         const wizard = new CLIWizard(toolDetector);
         const tools = [
-          { id: 'claude-code', name: 'Claude Code', configPath: '/home/user/.claude.json' } as AIToolMetadata,
+          { id: 'claude-code', name: 'Claude Code', configPaths: { linux: '/home/user/.claude.json', darwin: '/home/user/.claude.json', win32: '/home/user/.claude.json' } } as AIToolMetadata,
         ];
 
         // Act

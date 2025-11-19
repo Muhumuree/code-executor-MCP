@@ -716,7 +716,7 @@ export class CLIWizard {
           tasks: [...existingTasks.tasks, ...templateTasks.tasks],
         };
       }
-    } catch (error) {
+    } catch {
       // File doesn't exist or is invalid JSON - use template as-is
     }
 
@@ -755,7 +755,7 @@ export class CLIWizard {
         verticalLayout: 'default',
       });
       return kleur.cyan(banner);
-    } catch (error) {
+    } catch {
       // Fallback if figlet fails
       return kleur.bold().cyan('=== Code Executor MCP Setup Wizard ===');
     }
@@ -957,7 +957,10 @@ export class CLIWizard {
 
     for (const tool of tools) {
       try {
-        const configPath = tool.configPath[process.platform as 'linux' | 'darwin' | 'win32'] || tool.configPath.linux;
+        const configPath = tool.configPaths[process.platform as 'linux' | 'darwin' | 'win32'] || tool.configPaths.linux;
+        if (!configPath) {
+          continue;
+        }
         const expandedPath = configPath.replace(/^~/, process.env.HOME || process.env.USERPROFILE || '~');
 
         try {
@@ -996,7 +999,7 @@ export class CLIWizard {
             valid: false,
           });
         }
-      } catch (error) {
+      } catch {
         // Tool config path resolution failed
         continue;
       }
@@ -1013,7 +1016,7 @@ export class CLIWizard {
    *
    * @param existingConfigs Array of existing config detection results
    */
-  async promptConfigUpdate(existingConfigs: Array<{ toolId: string; toolName: string; configPath: string; exists: boolean; valid: boolean; config?: any }>): Promise<'keep' | 'merge' | 'reset' | null> {
+  async promptConfigUpdate(_existingConfigs: Array<{ toolId: string; toolName: string; configPath: string; exists: boolean; valid: boolean; config?: any }>): Promise<'keep' | 'merge' | 'reset' | null> {
     const response = await prompts({
       type: 'select',
       name: 'updateOption',
@@ -1049,10 +1052,7 @@ export class CLIWizard {
    * **THROWS:** Error if lock already held by another wizard process
    */
   async acquireLock(): Promise<void> {
-    const acquired = await this.lockFileService.acquire();
-    if (!acquired) {
-      throw new Error('Wizard lock is already held by another process. Please wait for the other wizard to complete.');
-    }
+    await this.lockFileService.acquire();
   }
 
   /**
