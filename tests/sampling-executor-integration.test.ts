@@ -2,38 +2,51 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { executeTypescriptInSandbox } from '../src/sandbox-executor.js';
 import { MCPClientPool } from '../src/mcp-client-pool.js';
 import { initConfig } from '../src/config.js';
-import Anthropic from '@anthropic-ai/sdk';
+import nock from 'nock';
 
-// Mock Anthropic client for testing
-const mockAnthropic = {
-  messages: {
-    create: vi.fn().mockResolvedValue({
-      content: [{ type: 'text', text: 'Mock Claude response for integration test' }],
-      stop_reason: 'end_turn',
-      model: 'claude-3-5-haiku-20241022',
-      usage: {
-        input_tokens: 15,
-        output_tokens: 25
-      }
-    })
-  }
-} as unknown as Anthropic;
+let anthropicScope: nock.Scope;
 
 // Initialize config before all tests
 beforeAll(async () => {
   await initConfig({});
 });
 
-// Setup fake timers for integration tests
+// Setup fake timers and HTTP mocking for integration tests
 beforeEach(() => {
   vi.useFakeTimers();
-  // Set ANTHROPIC_API_KEY to avoid real API calls
-  process.env.ANTHROPIC_API_KEY = 'test-key';
+
+  // Set ANTHROPIC_API_KEY for fallback mode
+  process.env.ANTHROPIC_API_KEY = 'test-key-for-integration-tests';
+
+  // Mock Anthropic API HTTP endpoint (for when sampling falls back to direct API)
+  anthropicScope = nock('https://api.anthropic.com')
+    .persist()
+    .post('/v1/messages')
+    .reply(200, {
+      id: 'msg_integration_test',
+      type: 'message',
+      role: 'assistant',
+      content: [
+        {
+          type: 'text',
+          text: 'Mock Claude response for integration test'
+        }
+      ],
+      model: 'claude-3-5-haiku-20241022',
+      stop_reason: 'end_turn',
+      usage: {
+        input_tokens: 15,
+        output_tokens: 25
+      }
+    });
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+
+  // Clean up nock mocks
+  nock.cleanAll();
 });
 
 describe('Sampling Executor Integration', () => {
@@ -44,9 +57,7 @@ describe('Sampling Executor Integration', () => {
   });
 
   describe('TypeScript Sampling', () => {
-    // TODO: These tests need proper Anthropic API mocking
-    // The bridge server tests (15/15 passing) validate the core functionality
-    it.skip('should_throwError_when_samplingDisabledAndLlmAskCalled', async () => {
+    it('should_throwError_when_samplingDisabledAndLlmAskCalled', async () => {
       // RED: This test will fail until TypeScript sampling integration is implemented
       const code = `
         try {
@@ -74,8 +85,7 @@ describe('Sampling Executor Integration', () => {
       expect(result.error).toContain('Sampling not enabled');
     });
 
-    it.skip('should_returnClaudeResponse_when_llmAskCalled', async () => {
-      // RED: This test will fail until implementation
+    it('should_returnClaudeResponse_when_llmAskCalled', async () => {
       const code = `
         const response = await llm.ask("What is the capital of France?");
         console.log("Response:", response);
@@ -100,8 +110,7 @@ describe('Sampling Executor Integration', () => {
       expect(result.samplingCalls![0].response.content[0].text).toBe('Mock Claude response for integration test');
     });
 
-    it.skip('should_supportMultiTurn_when_llmThinkCalledWithMessages', async () => {
-      // RED: This test will fail until implementation
+    it('should_supportMultiTurn_when_llmThinkCalledWithMessages', async () => {
       const code = `
         const messages = [
           { role: 'user', content: 'Hello' },
@@ -130,8 +139,7 @@ describe('Sampling Executor Integration', () => {
       expect(result.samplingCalls![0].response.content[0].text).toBe('Mock Claude response for integration test');
     });
 
-    it.skip('should_enforceRateLimits_when_multipleCallsMade', async () => {
-      // RED: This test will fail until rate limiting integration is implemented
+    it('should_enforceRateLimits_when_multipleCallsMade', async () => {
       const code = `
         try {
           for (let i = 0; i < 12; i++) {
@@ -165,8 +173,7 @@ describe('Sampling Executor Integration', () => {
   // Python Sampling tests will be implemented in Phase 8
 
   describe('Sampling Metadata', () => {
-    it.skip('should_returnSamplingMetrics_when_executionCompletes', async () => {
-      // RED: This test will fail until metadata integration is implemented
+    it('should_returnSamplingMetrics_when_executionCompletes', async () => {
       const code = `
         const response1 = await llm.ask("First question");
         const response2 = await llm.ask("Second question");
@@ -192,8 +199,7 @@ describe('Sampling Executor Integration', () => {
       expect(result.samplingMetrics!.averageTokensPerRound).toBeGreaterThan(0);
     });
 
-    it.skip('should_streamChunks_when_streamingEnabled', async () => {
-      // RED: This test will fail until streaming is implemented
+    it('should_streamChunks_when_streamingEnabled', async () => {
       // Note: Streaming support will be added in T061
       const code = `
         const response = await llm.ask("Test streaming");
