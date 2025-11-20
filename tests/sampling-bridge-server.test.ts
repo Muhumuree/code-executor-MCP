@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SamplingBridgeServer } from '../src/sampling-bridge-server';
 import { createServer } from 'http';
+import Anthropic from '@anthropic-ai/sdk';
 
 // Mock MCP server for testing
 const mockMcpServer = {
@@ -10,6 +11,21 @@ const mockMcpServer = {
     usage: { inputTokens: 10, outputTokens: 20 }
   })
 };
+
+// Mock Anthropic client
+const mockAnthropic = {
+  messages: {
+    create: vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Mock Claude response' }],
+      stop_reason: 'end_turn',
+      model: 'claude-3-5-haiku-20241022',
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20
+      }
+    })
+  }
+} as unknown as Anthropic;
 
 // Setup fake timers for rate limiting tests
 beforeEach(() => {
@@ -151,6 +167,232 @@ describe('SamplingBridgeServer', () => {
 
       // Variance should be small (< 50ms for constant-time comparison)
       expect(variance).toBeLessThan(50);
+    });
+  });
+
+  describe('Rate Limiting', () => {
+    let bridge: SamplingBridgeServer;
+    let serverInfo: { port: number; authToken: string };
+    let mockAnthropic: Anthropic;
+
+    beforeEach(async () => {
+      // Create fresh mock for each test
+      mockAnthropic = {
+        messages: {
+          create: vi.fn().mockResolvedValue({
+            content: [{ type: 'text', text: 'Mock Claude response' }],
+            stop_reason: 'end_turn',
+            model: 'claude-3-5-haiku-20241022',
+            usage: {
+              input_tokens: 10,
+              output_tokens: 20
+            }
+          })
+        }
+      } as unknown as Anthropic;
+
+      bridge = new SamplingBridgeServer(mockMcpServer as any, {
+        enabled: true,
+        maxRoundsPerExecution: 10,
+        maxTokensPerExecution: 10000,
+        timeoutPerCallMs: 30000,
+        allowedSystemPrompts: ['You are a helpful assistant'],
+        contentFilteringEnabled: false,
+        allowedModels: ['claude-3-5-haiku-20241022']
+      }, undefined, mockAnthropic);
+      serverInfo = await bridge.start();
+    });
+
+    afterEach(async () => {
+      await bridge.stop();
+    });
+
+    it('should_allow10Rounds_when_defaultLimitConfigured', async () => {
+      // Make 10 calls - all should succeed
+      const responses = [];
+      for (let i = 0; i < 10; i++) {
+        const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serverInfo.authToken}`
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: `Request ${i}` }],
+            model: 'claude-3-5-haiku-20241022'
+          })
+        });
+        responses.push(response.status);
+      }
+
+      // All 10 should succeed (200)
+      expect(responses.every(status => status === 200)).toBe(true);
+      expect(responses.length).toBe(10);
+    });
+
+    it('should_return429_when_rateLimitExceeded', async () => {
+      // Make 10 successful calls
+      for (let i = 0; i < 10; i++) {
+        await fetch(`http://localhost:${serverInfo.port}/sample`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serverInfo.authToken}`
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: `Request ${i}` }],
+            model: 'claude-3-5-haiku-20241022'
+          })
+        });
+      }
+
+      // 11th call should return 429
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Request 11' }],
+          model: 'claude-3-5-haiku-20241022'
+        })
+      });
+
+      expect(response.status).toBe(429);
+      const body = await response.json();
+      expect(body.error).toContain('Rate limit exceeded');
+    });
+
+    it('should_enforceTokenBudget_when_10kTokensExceeded', async () => {
+      // Create a bridge with lower token limit for testing
+      const lowTokenMockAnthropic = {
+        messages: {
+          create: vi.fn().mockResolvedValue({
+            content: [{ type: 'text', text: 'Mock Claude response' }],
+            stop_reason: 'end_turn',
+            model: 'claude-3-5-haiku-20241022',
+            usage: {
+              input_tokens: 10,
+              output_tokens: 20 // 30 tokens per call
+            }
+          })
+        }
+      } as unknown as Anthropic;
+
+      const lowTokenBridge = new SamplingBridgeServer(mockMcpServer as any, {
+        enabled: true,
+        maxRoundsPerExecution: 100, // High round limit
+        maxTokensPerExecution: 100, // Low token limit (100 tokens)
+        timeoutPerCallMs: 30000,
+        allowedSystemPrompts: ['You are a helpful assistant'],
+        contentFilteringEnabled: false,
+        allowedModels: ['claude-3-5-haiku-20241022']
+      }, undefined, lowTokenMockAnthropic);
+      const lowTokenInfo = await lowTokenBridge.start();
+
+      try {
+        // Make first call that uses tokens (30 tokens)
+        await fetch(`http://localhost:${lowTokenInfo.port}/sample`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${lowTokenInfo.authToken}`
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'Test 1' }],
+            model: 'claude-3-5-haiku-20241022'
+          })
+        });
+
+        // Make calls until we exceed token limit
+        // Each call uses 30 tokens (10 input + 20 output), so 4 calls = 120 tokens > 100 limit
+        for (let i = 2; i <= 4; i++) {
+          const response = await fetch(`http://localhost:${lowTokenInfo.port}/sample`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${lowTokenInfo.authToken}`
+            },
+            body: JSON.stringify({
+              messages: [{ role: 'user', content: `Test ${i}` }],
+              model: 'claude-3-5-haiku-20241022'
+            })
+          });
+
+          // 4th call should exceed token limit
+          if (i === 4) {
+            expect(response.status).toBe(429);
+            const body = await response.json();
+            expect(body.error).toContain('Token limit exceeded');
+          }
+        }
+      } finally {
+        await lowTokenBridge.stop();
+      }
+    });
+
+    it('should_showQuotaRemaining_when_429Returned', async () => {
+      // Make 10 calls to exhaust rounds
+      for (let i = 0; i < 10; i++) {
+        await fetch(`http://localhost:${serverInfo.port}/sample`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serverInfo.authToken}`
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: `Request ${i}` }],
+            model: 'claude-3-5-haiku-20241022'
+          })
+        });
+      }
+
+      // 11th call should show quota remaining
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Request 11' }],
+          model: 'claude-3-5-haiku-20241022'
+        })
+      });
+
+      expect(response.status).toBe(429);
+      const body = await response.json();
+      expect(body.error).toContain('remaining');
+      expect(body.error).toMatch(/\d+ remaining/); // Should show "0 remaining"
+    });
+
+    it('should_handleConcurrentRequests_when_multipleCallsSimultaneous', async () => {
+      // Make 10 concurrent requests
+      const promises = Array.from({ length: 10 }, (_, i) =>
+        fetch(`http://localhost:${serverInfo.port}/sample`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serverInfo.authToken}`
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: `Concurrent request ${i}` }],
+            model: 'claude-3-5-haiku-20241022'
+          })
+        })
+      );
+
+      const responses = await Promise.all(promises);
+      const statuses = await Promise.all(responses.map(r => r.status));
+
+      // All should succeed (200) - AsyncLock ensures atomic counter updates
+      expect(statuses.every(status => status === 200)).toBe(true);
+      expect(statuses.length).toBe(10);
+
+      // Verify metrics show exactly 10 rounds
+      const metrics = bridge.getSamplingMetrics('test');
+      expect(metrics.totalRounds).toBe(10);
     });
   });
 

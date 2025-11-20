@@ -2,6 +2,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import AsyncLock from 'async-lock';
 import type { SamplingConfig, SamplingCall, SamplingMetrics, LLMMessage, LLMResponse } from './types.js';
 import { ContentFilter } from './security/content-filter.js';
 
@@ -21,10 +22,11 @@ export class SamplingBridgeServer {
   private port: number | null = null;
   private isStarted = false;
 
-  // Rate limiting state
+  // Rate limiting state (protected by AsyncLock for concurrency safety)
   private roundsUsed = 0;
   private tokensUsed = 0;
   private startTime = Date.now();
+  private rateLimitLock: AsyncLock;
 
   // Dependencies
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,11 +47,13 @@ export class SamplingBridgeServer {
    * @param mcpServer - MCP server instance (can be mock for testing)
    * @param configOrAnthropic - Either SamplingConfig object or Anthropic client (for backward compatibility)
    * @param config - SamplingConfig object (if second param is Anthropic)
+   * @param anthropicClient - Optional Anthropic client (for testing/mocking)
    */
   constructor(
     mcpServer: Server | any,
     configOrAnthropic?: SamplingConfig | Anthropic,
-    config?: SamplingConfig
+    config?: SamplingConfig,
+    anthropicClient?: Anthropic
   ) {
     this.mcpServer = mcpServer;
 
@@ -59,10 +63,10 @@ export class SamplingBridgeServer {
       this.anthropic = configOrAnthropic as Anthropic;
       this.config = config;
     } else if (configOrAnthropic && 'enabled' in configOrAnthropic) {
-      // New signature: (mcpServer, config) - for testing
+      // New signature: (mcpServer, config, anthropicClient?) - for testing
       this.config = configOrAnthropic as SamplingConfig;
-      // Create Anthropic client internally
-      this.anthropic = new Anthropic({
+      // Use provided Anthropic client or create one
+      this.anthropic = anthropicClient || new Anthropic({
         apiKey: process.env.ANTHROPIC_API_KEY || 'dummy-key-for-development'
       });
     } else {
@@ -76,12 +80,13 @@ export class SamplingBridgeServer {
         contentFilteringEnabled: true,
         allowedModels: ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022']
       };
-      this.anthropic = new Anthropic({
+      this.anthropic = anthropicClient || new Anthropic({
         apiKey: process.env.ANTHROPIC_API_KEY || 'dummy-key-for-development'
       });
     }
 
     this.contentFilter = new ContentFilter();
+    this.rateLimitLock = new AsyncLock();
   }
 
   /**
@@ -233,22 +238,29 @@ export class SamplingBridgeServer {
         return;
       }
 
-      // Check rate limits
-      if (this.roundsUsed >= this.config.maxRoundsPerExecution) {
-        const metrics = this.getSamplingMetrics('current');
-        res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          error: `Rate limit exceeded: ${metrics.totalRounds}/${this.config.maxRoundsPerExecution} rounds used, ${metrics.quotaRemaining.rounds} remaining`
-        }));
-        return;
-      }
+      // Check rate limits (atomic check with AsyncLock for concurrency safety)
+      const rateLimitExceeded = await this.rateLimitLock.acquire('rate-limit-check', async () => {
+        if (this.roundsUsed >= this.config.maxRoundsPerExecution) {
+          return { type: 'rounds' as const, exceeded: true };
+        }
+        if (this.tokensUsed >= this.config.maxTokensPerExecution) {
+          return { type: 'tokens' as const, exceeded: true };
+        }
+        return { exceeded: false };
+      });
 
-      if (this.tokensUsed >= this.config.maxTokensPerExecution) {
+      if (rateLimitExceeded.exceeded) {
         const metrics = this.getSamplingMetrics('current');
         res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          error: `Token limit exceeded: ${metrics.totalTokens}/${this.config.maxTokensPerExecution} tokens used, ${metrics.quotaRemaining.tokens} remaining`
-        }));
+        if (rateLimitExceeded.type === 'rounds') {
+          res.end(JSON.stringify({
+            error: `Rate limit exceeded: ${metrics.totalRounds}/${this.config.maxRoundsPerExecution} rounds used, ${metrics.quotaRemaining.rounds} remaining`
+          }));
+        } else {
+          res.end(JSON.stringify({
+            error: `Token limit exceeded: ${metrics.totalTokens}/${this.config.maxTokensPerExecution} tokens used, ${metrics.quotaRemaining.tokens} remaining`
+          }));
+        }
         return;
       }
 
@@ -304,9 +316,27 @@ export class SamplingBridgeServer {
       const callDuration = Date.now() - callStartTime;
       const tokensUsed = claudeResponse.usage.input_tokens + claudeResponse.usage.output_tokens;
 
-      // Update rate limiting counters
-      this.roundsUsed++;
-      this.tokensUsed += tokensUsed;
+      // Update rate limiting counters and check token limit (atomic with AsyncLock for concurrency safety)
+      // Token limit is checked AFTER API call since we don't know usage until then
+      const tokenLimitCheck = await this.rateLimitLock.acquire('rate-limit-update', async () => {
+        // Check if adding these tokens would exceed limit
+        if (this.tokensUsed + tokensUsed > this.config.maxTokensPerExecution) {
+          return { exceeded: true, metrics: this.getSamplingMetrics('current') };
+        }
+        // Update counters
+        this.roundsUsed++;
+        this.tokensUsed += tokensUsed;
+        return { exceeded: false };
+      });
+
+      if (tokenLimitCheck.exceeded) {
+        const metrics = tokenLimitCheck.metrics!;
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          error: `Token limit exceeded: ${metrics.totalTokens + tokensUsed}/${this.config.maxTokensPerExecution} tokens would be used, ${Math.max(0, this.config.maxTokensPerExecution - metrics.totalTokens)} remaining`
+        }));
+        return;
+      }
 
       // Convert Anthropic response to our LLMResponse format
       const llmResponse: LLMResponse = {
