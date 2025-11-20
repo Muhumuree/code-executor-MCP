@@ -316,6 +316,53 @@ globalThis.searchTools = async (query: string, limit: number = 10): Promise<Tool
 
 // MCP Sampling helpers (injected when sampling is enabled)
 ${options.enableSampling ? `
+// Helper function to create SSE streaming generator (DRY: extracted from llm.ask/think)
+function createStreamingGenerator(response: Response): AsyncGenerator<string> {
+  return (async function* () {
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) {
+      throw new Error('Streaming response body not available');
+    }
+
+    let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              return;
+            }
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === 'chunk') {
+                yield parsed.content;
+              } else if (parsed.type === 'done') {
+                return;
+              } else if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  })();
+}
+
 // LLM sampling helpers for TypeScript
 globalThis.llm = {
   /**
@@ -349,50 +396,7 @@ globalThis.llm = {
 
     // Handle streaming response
     if (stream && response.headers.get('content-type')?.includes('text/event-stream')) {
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      
-      if (!reader) {
-        throw new Error('Streaming response body not available');
-      }
-
-      // Return async generator for streaming chunks
-      return (async function* () {
-        let buffer = '';
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\\n');
-            buffer = lines.pop() || ''; // Keep incomplete line in buffer
-            
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') {
-                  return;
-                }
-                try {
-                  const parsed = JSON.parse(data);
-                  if (parsed.type === 'chunk') {
-                    yield parsed.content;
-                  } else if (parsed.type === 'done') {
-                    return;
-                  } else if (parsed.error) {
-                    throw new Error(parsed.error);
-                  }
-                } catch (e) {
-                  // Skip invalid JSON
-                }
-              }
-            }
-          }
-        } finally {
-          reader.releaseLock();
-        }
-      })();
+      return createStreamingGenerator(response);
     }
 
     // Non-streaming response
@@ -436,50 +440,7 @@ globalThis.llm = {
 
     // Handle streaming response
     if (stream && response.headers.get('content-type')?.includes('text/event-stream')) {
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      
-      if (!reader) {
-        throw new Error('Streaming response body not available');
-      }
-
-      // Return async generator for streaming chunks
-      return (async function* () {
-        let buffer = '';
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\\n');
-            buffer = lines.pop() || ''; // Keep incomplete line in buffer
-            
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') {
-                  return;
-                }
-                try {
-                  const parsed = JSON.parse(data);
-                  if (parsed.type === 'chunk') {
-                    yield parsed.content;
-                  } else if (parsed.type === 'done') {
-                    return;
-                  } else if (parsed.error) {
-                    throw new Error(parsed.error);
-                  }
-                } catch (e) {
-                  // Skip invalid JSON
-                }
-              }
-            }
-          }
-        } finally {
-          reader.releaseLock();
-        }
-      })();
+      return createStreamingGenerator(response);
     }
 
     // Non-streaming response

@@ -17,6 +17,7 @@
  */
 
 import { existsSync } from 'fs';
+import { getDockerContainer } from './config.js';
 
 /**
  * Check if running inside Docker container
@@ -41,7 +42,9 @@ export function isDockerEnvironment(): boolean {
 
   // Method 2: Check DOCKER_CONTAINER environment variable
   // WHY: Allows explicit override for custom Docker setups
-  if (process.env.DOCKER_CONTAINER === 'true' || process.env.DOCKER_CONTAINER === '1') {
+  // SECURITY: Use validated config getter (Constitutional Principle 4)
+  const dockerEnv = getDockerContainer();
+  if (dockerEnv === 'true' || dockerEnv === '1') {
     return true;
   }
 

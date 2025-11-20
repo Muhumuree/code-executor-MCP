@@ -361,6 +361,26 @@ export function getAnthropicApiKey(): string | undefined {
   return process.env.ANTHROPIC_API_KEY;
 }
 
+/**
+ * Get Docker container environment variable
+ *
+ * **WHY This Function?**
+ * - Centralizes access to DOCKER_CONTAINER environment variable
+ * - Replaces direct process.env access (Constitutional Principle 4)
+ * - Enables Docker detection for host.docker.internal bridge URL
+ * - Follows same pattern as other config functions
+ *
+ * **Security:**
+ * - Environment variable validated at access point (not arbitrary values)
+ * - Used in combination with /.dockerenv file check for reliability
+ * - Only accepts 'true' or '1' as valid Docker indicators
+ *
+ * @returns DOCKER_CONTAINER value or undefined if not set
+ */
+export function getDockerContainer(): string | undefined {
+  return process.env.DOCKER_CONTAINER;
+}
+
 // For backward compatibility, export commonly used values
 // (will be removed in v2.0)
 export const DEFAULT_TIMEOUT_MS = 30000;

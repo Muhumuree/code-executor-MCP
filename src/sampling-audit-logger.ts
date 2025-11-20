@@ -16,6 +16,7 @@
  */
 
 import { createHash } from 'crypto';
+import AsyncLock from 'async-lock';
 import { AuditLogger } from './audit-logger.js';
 import type { SamplingAuditEntry } from './types.js';
 
@@ -66,6 +67,9 @@ export class SamplingAuditLogger {
         tokensUsed: entry.tokensUsed,
         durationMs: entry.durationMs,
         contentViolations: entry.contentViolations,
+        // FIX: Preserve original status to avoid data loss (error vs rate_limited vs timeout)
+        // WHY: AuditLogger only accepts 'success' | 'failure' | 'rejected', but sampling has more granular statuses
+        originalStatus: entry.status,
       },
       status: entry.status === 'success' ? 'success' : 'failure',
       errorMessage: entry.errorMessage,
@@ -115,15 +119,32 @@ export class SamplingAuditLogger {
 let globalSamplingAuditLogger: SamplingAuditLogger | null = null;
 
 /**
+ * AsyncLock for singleton initialization
+ *
+ * WHY AsyncLock?
+ * - Prevents race condition in concurrent async initialization
+ * - Node.js is single-threaded but async calls can interleave
+ * - Ensures only one instance created even under concurrent load
+ */
+const singletonLock = new AsyncLock();
+
+/**
  * Get or create global sampling audit logger
+ *
+ * **Thread Safety:**
+ * - Protected by AsyncLock to prevent race conditions
+ * - Safe for concurrent async calls
+ * - Ensures single instance per process
  *
  * @returns Global singleton instance
  */
-export function getSamplingAuditLogger(): SamplingAuditLogger {
-  if (!globalSamplingAuditLogger) {
-    globalSamplingAuditLogger = new SamplingAuditLogger();
-  }
-  return globalSamplingAuditLogger;
+export async function getSamplingAuditLogger(): Promise<SamplingAuditLogger> {
+  return await singletonLock.acquire('singleton-init', async () => {
+    if (!globalSamplingAuditLogger) {
+      globalSamplingAuditLogger = new SamplingAuditLogger();
+    }
+    return globalSamplingAuditLogger;
+  });
 }
 
 /**
