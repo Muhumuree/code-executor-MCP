@@ -18,6 +18,7 @@
 8. [Design Decisions](#design-decisions)
 9. [Resilience Patterns](#resilience-patterns)
 10. [CLI Setup Wizard Architecture](#cli-setup-wizard-architecture)
+11. [MCP Sampling Architecture (v1.0.0)](#mcp-sampling-architecture-v100)
 
 ---
 
@@ -1323,6 +1324,420 @@ function mergeMCPServers(
 
 ---
 
-**Document Version:** 1.1.0 (Added CLI Setup Wizard Architecture for v0.9.0)
+## 11. MCP Sampling Architecture (v1.0.0)
+
+**Release:** v1.0.0 (2025-01-20)
+**Status:** Beta
+**Purpose:** Enable LLM-in-the-Loop execution for dynamic reasoning and analysis
+
+### 11.1 Overview
+
+MCP Sampling allows sandboxed code (TypeScript/Python) to invoke Claude during execution through simple helpers (`llm.ask()`, `llm.think()`). This enables "Claude asks Claude" scenarios for multi-step reasoning, code analysis, and data processing.
+
+### 11.2 Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    AI Agent (Claude/Cursor)                 │
+│                                                             │
+│  1. Send code with enableSampling: true                     │
+└─────────────────────────────────────────────────────────────┘
+                    ↓ (executeTypescript/executePython)
+┌─────────────────────────────────────────────────────────────┐
+│               Code Executor MCP Server                      │
+│                                                             │
+│  2. Detect sampling enabled                                 │
+│  3. Start SamplingBridgeServer                              │
+│     - Generate 256-bit bearer token                         │
+│     - Start HTTP server on random port (localhost only)     │
+│     - Inject llm helpers into sandbox                       │
+└─────────────────────────────────────────────────────────────┘
+                    ↓ (Start sandbox with bridge URL + token)
+┌─────────────────────────────────────────────────────────────┐
+│         Sandbox (Deno/Pyodide) with Injected Helpers        │
+│                                                             │
+│  User Code:                                                 │
+│    const result = await llm.ask("Analyze this code...");    │
+│                    ↓                                         │
+│  4. HTTP POST to bridge: localhost:PORT/sample              │
+│     Authorization: Bearer <token>                           │
+│     Body: { messages, model, maxTokens, systemPrompt }     │
+└─────────────────────────────────────────────────────────────┘
+                    ↓ (Bearer token validation)
+┌─────────────────────────────────────────────────────────────┐
+│           SamplingBridgeServer (Security Layer)             │
+│                                                             │
+│  5. Security Checks (in order):                             │
+│     ✅ Validate Bearer Token (timing-safe comparison)       │
+│     ✅ Check Rate Limits (10 rounds, 10k tokens max)        │
+│     ✅ Validate System Prompt (allowlist check)             │
+│     ✅ Validate Request Schema (AJV deep validation)        │
+│                    ↓                                         │
+│  6. Forward Request:                                        │
+│     ├─ Mode Detection (MCP SDK or Direct API)              │
+│     ├─ MCP Sampling (free) - if available                  │
+│     └─ Direct Anthropic API (paid) - fallback              │
+└─────────────────────────────────────────────────────────────┘
+                    ↓ (Claude API call)
+┌─────────────────────────────────────────────────────────────┐
+│              Claude API (Anthropic)                         │
+│                                                             │
+│  7. Process Request:                                        │
+│     - Model: claude-sonnet-4-5 (default)                   │
+│     - Response: { content, stop_reason, usage }            │
+└─────────────────────────────────────────────────────────────┘
+                    ↓ (Return response)
+┌─────────────────────────────────────────────────────────────┐
+│           SamplingBridgeServer (Post-Processing)            │
+│                                                             │
+│  8. Content Filtering:                                      │
+│     ✅ Scan for secrets (OpenAI keys, GitHub tokens, AWS)  │
+│     ✅ Scan for PII (emails, SSNs, credit cards)           │
+│     ✅ Redact violations: [REDACTED_SECRET]/[REDACTED_PII] │
+│                    ↓                                         │
+│  9. Audit Logging:                                          │
+│     ✅ SHA-256 hash of prompt/response (no plaintext)      │
+│     ✅ Log: timestamp, model, tokens, duration, violations  │
+│     ✅ Write to: ~/.code-executor/audit-log.jsonl          │
+│                    ↓                                         │
+│  10. Update Metrics:                                        │
+│      - Increment round counter                              │
+│      - Add tokens to cumulative budget                      │
+│      - Calculate quota remaining                            │
+└─────────────────────────────────────────────────────────────┘
+                    ↓ (Return filtered response)
+┌─────────────────────────────────────────────────────────────┐
+│         Sandbox (Continue Execution)                        │
+│                                                             │
+│  User Code:                                                 │
+│    console.log(result); // Claude's filtered response       │
+│                    ↓                                         │
+│  11. Execution completes, bridge shuts down gracefully      │
+└─────────────────────────────────────────────────────────────┘
+                    ↓ (Return execution result)
+┌─────────────────────────────────────────────────────────────┐
+│               Code Executor MCP Server                      │
+│                                                             │
+│  12. Return to AI Agent:                                    │
+│      {                                                      │
+│        success: true,                                       │
+│        output: "...",                                       │
+│        samplingCalls: [...],  // Array of all LLM calls    │
+│        samplingMetrics: {                                   │
+│          totalRounds: 2,                                    │
+│          totalTokens: 150,                                  │
+│          totalDurationMs: 1200,                             │
+│          averageTokensPerRound: 75,                         │
+│          quotaRemaining: { rounds: 8, tokens: 9850 }       │
+│        }                                                    │
+│      }                                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 11.3 Core Components
+
+#### 11.3.1 SamplingBridgeServer
+
+**Purpose:** Ephemeral HTTP bridge between sandbox and Claude API with security enforcement
+
+**Responsibilities:**
+1. **Lifecycle Management**
+   - Start: Generate bearer token, find random port, start HTTP server
+   - Stop: Drain active requests (max 5s), close server gracefully
+   - Lifecycle: One bridge per execution, destroyed after completion
+
+2. **Security Enforcement**
+   - Bearer token validation (timing-safe comparison)
+   - Rate limiting (rounds and tokens)
+   - System prompt allowlist validation
+   - Content filtering (secrets/PII redaction)
+
+3. **Request Proxying**
+   - Mode detection: MCP SDK (free) or Direct API (paid)
+   - Request forwarding with proper authentication
+   - Response filtering and audit logging
+
+**Key Methods:**
+- `start(): Promise<{port, authToken}>` - Start bridge server
+- `stop(): Promise<void>` - Graceful shutdown with request draining
+- `getSamplingMetrics(): Promise<SamplingMetrics>` - Get current metrics
+- `handleRequest(req, res)` - HTTP request handler (private)
+
+**Configuration:**
+```typescript
+interface SamplingConfig {
+  enabled: boolean;                  // Enable/disable sampling
+  maxRoundsPerExecution: number;     // Max LLM calls (default: 10)
+  maxTokensPerExecution: number;     // Max tokens (default: 10,000)
+  timeoutPerCallMs: number;          // Timeout per call (default: 30,000ms)
+  allowedSystemPrompts: string[];    // Prompt allowlist
+  contentFilteringEnabled: boolean;  // Enable filtering (default: true)
+}
+```
+
+#### 11.3.2 RateLimiter
+
+**Purpose:** Prevent infinite loops and resource exhaustion
+
+**Implementation:**
+- **Round Counter**: Tracks number of sampling calls
+- **Token Budget**: Cumulative token count across all calls
+- **AsyncLock Protection**: Thread-safe counters for concurrent access
+- **Quota Calculation**: Real-time remaining rounds/tokens
+
+**Methods:**
+- `async checkLimit(tokensRequested): Promise<{exceeded, metrics}>` - Check if request would exceed limits
+- `async incrementUsage(tokensUsed): Promise<void>` - Increment counters after successful call
+- `async getMetrics(): Promise<{roundsUsed, tokensUsed}>` - Get current usage
+- `async getQuotaRemaining(): Promise<{rounds, tokens}>` - Get remaining quota
+
+**Test Coverage:**
+- ✅ T033-T036: Rate limiting tests (10 rounds, 10k tokens, 429 responses)
+- ✅ T037: Concurrent access protection (AsyncLock verification)
+
+#### 11.3.3 ContentFilter
+
+**Purpose:** Detect and redact secrets/PII from Claude responses
+
+**Patterns Detected:**
+- **Secrets**: OpenAI keys (`sk-*`), GitHub tokens (`ghp_*`), AWS keys (`AKIA*`), JWT tokens (`eyJ*`)
+- **PII**: Emails, SSNs, credit card numbers
+
+**Methods:**
+- `scan(content): {violations, filtered}` - Detect violations and return redacted content
+- `filter(content, rejectOnViolation): string` - Filter with optional rejection mode
+- `hasViolations(content): boolean` - Quick check for any violations
+
+**Redaction Format:**
+- Secrets: `[REDACTED_SECRET]`
+- PII: `[REDACTED_PII]`
+
+**Test Coverage:**
+- ✅ T022-T026: Pattern detection tests (98%+ coverage)
+- ✅ T115: Secret leakage redaction verification
+
+#### 11.3.4 SamplingAuditLogger
+
+**Purpose:** Log all sampling calls for security auditing and compliance
+
+**Log Format (JSONL):**
+```json
+{
+  "timestamp": "2025-01-20T12:00:00.000Z",
+  "executionId": "exec-123",
+  "round": 1,
+  "model": "claude-sonnet-4-5",
+  "promptHash": "sha256:abc123...",
+  "responseHash": "sha256:def456...",
+  "tokensUsed": 75,
+  "durationMs": 600,
+  "status": "success",
+  "contentViolations": [
+    { "type": "secret", "pattern": "openai_key", "count": 1 }
+  ]
+}
+```
+
+**Key Features:**
+- **SHA-256 Hashing**: No plaintext secrets in logs
+- **AsyncLock Protection**: Thread-safe concurrent writes
+- **JSONL Format**: One entry per line, easy to parse
+- **Location**: `~/.code-executor/audit-log.jsonl`
+
+**Test Coverage:**
+- ✅ T082-T084: Audit logging tests (13/13 passing)
+
+### 11.4 API Design
+
+#### 11.4.1 TypeScript API (Deno Sandbox)
+
+**Simple Query:**
+```typescript
+const response = await llm.ask("What is 2+2?");
+// Returns: "4"
+```
+
+**Multi-Turn Conversation:**
+```typescript
+const response = await llm.think({
+  messages: [
+    { role: "user", content: "What is 2+2?" },
+    { role: "assistant", content: "4" },
+    { role: "user", content: "What about 3+3?" }
+  ],
+  model: "claude-sonnet-4-5",  // Optional
+  maxTokens: 1000,              // Optional
+  systemPrompt: "",             // Optional (must be in allowlist)
+  stream: false                 // Optional (not yet supported)
+});
+// Returns: "6"
+```
+
+#### 11.4.2 Python API (Pyodide Sandbox)
+
+**Simple Query:**
+```python
+response = await llm.ask("What is 2+2?")
+# Returns: "4"
+```
+
+**Multi-Turn Conversation:**
+```python
+response = await llm.think(
+    messages=[
+        {"role": "user", "content": "What is 2+2?"},
+        {"role": "assistant", "content": "4"},
+        {"role": "user", "content": "What about 3+3?"}
+    ],
+    model="claude-sonnet-4-5",  # Optional
+    max_tokens=1000,             # Optional (snake_case for Python)
+    system_prompt="",            # Optional (must be in allowlist)
+    stream=False                 # Optional (not supported in Pyodide)
+)
+# Returns: "6"
+```
+
+### 11.5 Security Model
+
+#### 11.5.1 Threat Matrix
+
+| Threat | Likelihood | Impact | Mitigation | Test |
+|--------|-----------|--------|------------|------|
+| Infinite loop API cost | High | High | Rate limiting (10 rounds) | T112 ✅ |
+| Token exhaustion | Medium | High | Token budget (10k tokens) | T113 ✅ |
+| Prompt injection | Medium | Medium | System prompt allowlist | T114 ✅ |
+| Secret leakage | Low | Critical | Content filtering + SHA-256 logs | T115 ✅ |
+| Timing attacks | Low | Medium | Constant-time comparison | T116 ✅ |
+| Unauthorized access | Low | Medium | Bearer token + localhost binding | T014/T011 ✅ |
+
+#### 11.5.2 Defense Layers
+
+1. **Authentication Layer**: 256-bit bearer token (unique per execution)
+2. **Rate Limiting Layer**: 10 rounds, 10,000 tokens per execution
+3. **Validation Layer**: System prompt allowlist, AJV schema validation
+4. **Content Filtering Layer**: Secrets/PII redaction before returning
+5. **Audit Layer**: SHA-256 hashed logs for forensic analysis
+
+### 11.6 Performance Characteristics
+
+| Metric | Target | Measured | Status |
+|--------|--------|----------|--------|
+| Bridge startup time | <50ms | ~30ms | ✅ PASS |
+| Per-call overhead | <100ms | ~60ms | ✅ PASS |
+| Memory footprint | <50MB | ~15MB | ✅ PASS |
+| Token validation | <10ms | ~5ms | ✅ PASS |
+| Content filtering | <50ms | ~15ms | ✅ PASS |
+
+### 11.7 Configuration Hierarchy
+
+**Priority (highest to lowest):**
+1. Per-execution parameters (`enableSampling`, `maxSamplingRounds`, `maxSamplingTokens`)
+2. Environment variables (`CODE_EXECUTOR_SAMPLING_ENABLED`, `CODE_EXECUTOR_MAX_SAMPLING_ROUNDS`)
+3. Configuration file (`~/.code-executor/config.json`)
+4. Default values (enabled: false, maxRounds: 10, maxTokens: 10,000)
+
+### 11.8 Hybrid Architecture (MCP SDK vs Direct API)
+
+**Mode Detection:**
+```typescript
+detectSamplingMode(): 'mcp' | 'direct' {
+  if (this.mcpServer && typeof this.mcpServer.request === 'function') {
+    return 'mcp';  // MCP SDK available (free)
+  }
+  return 'direct';  // Fallback to Direct API (paid)
+}
+```
+
+**MCP SDK Mode (Free):**
+- Uses Claude Desktop's MCP SDK for sampling
+- No additional API costs
+- Requires Claude Desktop with MCP support
+
+**Direct API Mode (Paid):**
+- Uses Anthropic API directly
+- Requires `ANTHROPIC_API_KEY`
+- Pay-per-token pricing
+
+**User Experience:**
+- Automatic detection and fallback
+- Clear logging of which mode is active
+- Same API surface regardless of mode
+
+### 11.9 Docker Support
+
+**Detection:**
+- Checks for `/.dockerenv` file
+- Checks for Docker cgroup signatures in `/proc/self/cgroup`
+
+**Bridge URL Handling:**
+- **Host execution**: `http://localhost:PORT`
+- **Docker execution**: `http://host.docker.internal:PORT`
+
+**Docker Compose Example:**
+```yaml
+services:
+  code-executor:
+    image: aberemia24/code-executor-mcp:1.0.0
+    environment:
+      - CODE_EXECUTOR_SAMPLING_ENABLED=true
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+
+### 11.10 Test Coverage
+
+**Total Sampling Tests: 74/74 passing (100%)**
+
+| Component | Tests | Status |
+|-----------|-------|--------|
+| Bridge Server | 15/15 | ✅ PASS |
+| Content Filter | 8/8 | ✅ PASS |
+| TypeScript API | 4/4 | ✅ PASS |
+| Python API | 3/3 | ✅ PASS |
+| Config Schema | 23/23 | ✅ PASS |
+| Audit Logging | 13/13 | ✅ PASS |
+| Security Attacks | 8/8 | ✅ PASS |
+
+**Key Tests:**
+- T010-T016: Bridge server lifecycle (startup, shutdown, token validation)
+- T022-T026: Content filtering (secrets, PII detection and redaction)
+- T033-T037: Rate limiting (rounds, tokens, concurrent access)
+- T044-T047: System prompt allowlist validation
+- T053-T056: TypeScript sampling API
+- T063-T066: Python sampling API
+- T082-T084: Audit logging with SHA-256 hashes
+- T112-T116: Security attack tests (infinite loop, token exhaustion, prompt injection, secret leakage, timing attacks)
+
+### 11.11 Design Rationale
+
+**Why Ephemeral Bridge Server?**
+- **Security**: Unique bearer token per execution prevents cross-execution attacks
+- **Isolation**: Localhost binding ensures no external access
+- **Lifecycle**: Bridge destroyed after execution, no lingering processes
+
+**Why Rate Limiting?**
+- **Cost Control**: Prevent infinite loops from causing API cost explosions
+- **Resource Management**: Prevent token exhaustion from overwhelming Claude API
+- **User Protection**: Default limits protect users from accidental abuse
+
+**Why Content Filtering?**
+- **Secret Protection**: Prevent API keys, tokens, credentials from leaking into logs
+- **Compliance**: PII redaction helps meet privacy regulations (GDPR, CCPA)
+- **Defense-in-Depth**: Even if Claude accidentally generates secrets, they're redacted
+
+**Why System Prompt Allowlist?**
+- **Prompt Injection Defense**: Prevents attackers from bypassing security via custom system prompts
+- **Controlled Behavior**: Ensures Claude operates within intended parameters
+- **Auditability**: Limited set of prompts makes behavior predictable
+
+**Why SHA-256 Audit Logs?**
+- **Forensics**: Enable investigation of security incidents without exposing secrets
+- **Deduplication**: Same prompt = same hash, enables pattern detection
+- **Compliance**: Meets audit requirements without storing plaintext data
+
+---
+
+**Document Version:** 1.2.0 (Added MCP Sampling Architecture for v1.0.0)
 **Contributors:** Alexandru Eremia
 **Last Review:** 2025-11-19

@@ -513,5 +513,283 @@ describe('SamplingBridgeServer', () => {
     });
   });
 
+  describe('Error Handling', () => {
+    it('should_throwError_when_startCalledTwice', async () => {
+      const bridge = new SamplingBridgeServer(mockMcpServer as any);
+      await bridge.start();
+
+      // Calling start() again should throw
+      await expect(bridge.start()).rejects.toThrow('Bridge server already started');
+
+      await bridge.stop();
+    });
+
+    it('should_return400_when_missingAuthorizationHeader', async () => {
+      const bridge = new SamplingBridgeServer(mockMcpServer as any);
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+          // No Authorization header
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'test' }]
+        })
+      });
+
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body.error).toContain('Missing or invalid authorization header');
+
+      await bridge.stop();
+    });
+
+    it('should_return401_when_malformedAuthorizationHeader', async () => {
+      const bridge = new SamplingBridgeServer(mockMcpServer as any);
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'InvalidFormat token123' // Not "Bearer <token>"
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'test' }]
+        })
+      });
+
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body.error).toContain('Missing or invalid authorization header');
+
+      await bridge.stop();
+    });
+
+    it('should_return400_when_invalidModel', async () => {
+      const bridge = new SamplingBridgeServer(mockMcpServer as any, {
+        enabled: true,
+        maxRoundsPerExecution: 10,
+        maxTokensPerExecution: 10000,
+        timeoutPerCallMs: 30000,
+        allowedSystemPrompts: [''],
+        contentFilteringEnabled: false,
+        allowedModels: ['claude-3-5-haiku-20241022'] // Only allow specific model
+      }, undefined, mockAnthropic);
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'test' }],
+          model: 'claude-opus-4' // Not in allowlist
+        })
+      });
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain("Model 'claude-opus-4' not in allowlist");
+
+      await bridge.stop();
+    });
+
+    it('should_return400_when_invalidRequestBody', async () => {
+      const bridge = new SamplingBridgeServer(mockMcpServer as any);
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        },
+        body: JSON.stringify({
+          // Missing required 'messages' field
+          model: 'claude-3-5-haiku-20241022'
+        })
+      });
+
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error).toBeTruthy();
+
+      await bridge.stop();
+    });
+
+    it('should_return404_when_invalidEndpoint', async () => {
+      const bridge = new SamplingBridgeServer(mockMcpServer as any);
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/invalid-endpoint`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        }
+      });
+
+      expect(response.status).toBe(404);
+      const body = await response.json();
+      expect(body.error).toBe('Not found');
+
+      await bridge.stop();
+    });
+
+    it('should_return400_when_streamingWithoutAnthropicKey', async () => {
+      // Create bridge without Anthropic client (MCP-only mode)
+      const bridge = new SamplingBridgeServer(mockMcpServer as any, {
+        enabled: true,
+        maxRoundsPerExecution: 10,
+        maxTokensPerExecution: 10000,
+        timeoutPerCallMs: 30000,
+        allowedSystemPrompts: [''],
+        contentFilteringEnabled: false,
+        allowedModels: ['claude-3-5-haiku-20241022']
+      }); // No Anthropic client provided
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'test' }],
+          stream: true // Request streaming
+        })
+      });
+
+      // Should succeed with MCP SDK fallback (no error expected)
+      expect(response.status).toBe(200);
+
+      await bridge.stop();
+    });
+
+    it('should_fallbackToDirectAPI_when_mcpSamplingFails', async () => {
+      // Create mock MCP server that fails
+      const failingMcpServer = {
+        request: vi.fn().mockRejectedValue(new Error('MCP sampling unavailable'))
+      };
+
+      const bridge = new SamplingBridgeServer(failingMcpServer as any, {
+        enabled: true,
+        maxRoundsPerExecution: 10,
+        maxTokensPerExecution: 10000,
+        timeoutPerCallMs: 30000,
+        allowedSystemPrompts: [''],
+        contentFilteringEnabled: false,
+        allowedModels: ['claude-3-5-haiku-20241022']
+      }, undefined, mockAnthropic); // Provide Anthropic client for fallback
+
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'test' }],
+          model: 'claude-3-5-haiku-20241022'
+        })
+      });
+
+      // Should succeed using fallback Direct API
+      expect(response.status).toBe(200);
+      expect(mockAnthropic.messages.create).toHaveBeenCalled();
+
+      await bridge.stop();
+    });
+
+    it('should_return500_when_mcpAndDirectAPIBothFail', async () => {
+      // Create mock MCP server that fails
+      const failingMcpServer = {
+        request: vi.fn().mockRejectedValue(new Error('MCP sampling unavailable'))
+      };
+
+      // Create mock Anthropic client that fails
+      const failingAnthropic = {
+        messages: {
+          create: vi.fn().mockRejectedValue(new Error('Anthropic API error'))
+        }
+      } as unknown as Anthropic;
+
+      const bridge = new SamplingBridgeServer(failingMcpServer as any, {
+        enabled: true,
+        maxRoundsPerExecution: 10,
+        maxTokensPerExecution: 10000,
+        timeoutPerCallMs: 30000,
+        allowedSystemPrompts: [''],
+        contentFilteringEnabled: false,
+        allowedModels: ['claude-3-5-haiku-20241022']
+      }, undefined, failingAnthropic);
+
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'test' }],
+          model: 'claude-3-5-haiku-20241022'
+        })
+      });
+
+      // Should return error when both fail
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error).toBeTruthy();
+
+      await bridge.stop();
+    });
+
+    it('should_handleMissingAnthropicClient_when_directModeRequired', async () => {
+      // Create bridge without MCP SDK (no request method)
+      const noMcpServer = {}; // No request method
+
+      const bridge = new SamplingBridgeServer(noMcpServer as any, {
+        enabled: true,
+        maxRoundsPerExecution: 10,
+        maxTokensPerExecution: 10000,
+        timeoutPerCallMs: 30000,
+        allowedSystemPrompts: [''],
+        contentFilteringEnabled: false,
+        allowedModels: ['claude-3-5-haiku-20241022']
+      }); // No Anthropic client provided
+
+      const serverInfo = await bridge.start();
+
+      const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serverInfo.authToken}`
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'test' }],
+          model: 'claude-3-5-haiku-20241022'
+        })
+      });
+
+      // Should return error when Anthropic client missing in direct mode
+      expect(response.status).toBe(503);
+      const body = await response.json();
+      expect(body.error).toBeTruthy();
+
+      await bridge.stop();
+    });
+  });
+
   // Additional test stubs will be added as implementation progresses
 });

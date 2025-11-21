@@ -130,5 +130,53 @@ describe('ContentFilter', () => {
     });
   });
 
+  describe('Utility Methods', () => {
+    it('should_returnTrue_when_hasViolationsCalledWithSecrets', () => {
+      const filter = new ContentFilter();
+      const input = 'Secret: sk-abc123def456';
+
+      expect(filter.hasViolations(input)).toBe(true);
+    });
+
+    it('should_returnFalse_when_hasViolationsCalledWithCleanContent', () => {
+      const filter = new ContentFilter();
+      const input = 'This is clean content with no secrets or PII';
+
+      expect(filter.hasViolations(input)).toBe(false);
+    });
+
+    it('should_returnAllPatternNames_when_getSupportedPatternsCalled', () => {
+      const filter = new ContentFilter();
+      const patterns = filter.getSupportedPatterns();
+
+      // Should include all secret patterns
+      expect(patterns).toContain('openai_key');
+      expect(patterns).toContain('github_token');
+      expect(patterns).toContain('aws_key');
+      expect(patterns).toContain('jwt_token');
+
+      // Should include all PII patterns
+      expect(patterns).toContain('email');
+      expect(patterns).toContain('ssn');
+      expect(patterns).toContain('credit_card');
+
+      // Should have exactly 7 patterns (4 secrets + 3 PII)
+      expect(patterns).toHaveLength(7);
+    });
+
+    it('should_returnFilteredContent_when_rejectOnViolationFalse', () => {
+      const filter = new ContentFilter();
+      const input = 'Secret: sk-abc123def456 Email: user@example.com';
+
+      // Should not throw, but return redacted content
+      const result = filter.filter(input, false);
+
+      expect(result).toContain('[REDACTED_SECRET]');
+      expect(result).toContain('[REDACTED_PII]');
+      expect(result).not.toContain('sk-abc123def456');
+      expect(result).not.toContain('user@example.com');
+    });
+  });
+
   // Additional test stubs will be added as implementation progresses
 });

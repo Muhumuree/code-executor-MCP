@@ -283,6 +283,153 @@ console.log('Security fixes applied and committed');
 | **Security** | Sandboxed (Deno/Python), allowlists, audit logs, rate limiting |
 | **Production Ready** | TypeScript, 606 tests, 95%+ coverage, Docker support |
 
+## MCP Sampling (Beta) - LLM-in-the-Loop Execution
+
+**New in v1.0.0:** Enable Claude to call itself during code execution for dynamic reasoning and analysis.
+
+### What is Sampling?
+
+MCP Sampling allows TypeScript and Python code running in sandboxed environments to invoke Claude (via Anthropic's API) through a simple interface. Your code can now "ask Claude for help" mid-execution.
+
+**Use Cases:**
+- **Code Analysis**: Read a file, ask Claude to analyze it for security issues
+- **Multi-Step Reasoning**: Have Claude break down complex tasks into steps
+- **Data Processing**: Process each file/record with Claude's intelligence
+- **Interactive Debugging**: Ask Claude to explain errors or suggest fixes
+
+### Quick Example
+
+**TypeScript:**
+```typescript
+// Enable sampling in your execution
+const result = await callMCPTool('mcp__code-executor__executeTypescript', {
+  code: `
+    // Read a file
+    const code = await callMCPTool('mcp__filesystem__read_file', {
+      path: './auth.ts'
+    });
+
+    // Ask Claude to analyze it
+    const analysis = await llm.ask(
+      'Analyze this code for security vulnerabilities: ' + code
+    );
+
+    console.log(analysis);
+  `,
+  enableSampling: true,  // Enable sampling
+  allowedTools: ['mcp__filesystem__read_file']
+});
+
+// Check sampling metrics
+console.log('Rounds:', result.samplingMetrics.totalRounds);
+console.log('Tokens:', result.samplingMetrics.totalTokens);
+```
+
+**Python:**
+```python
+# Python example with sampling
+code = """
+import json
+
+# Read data
+data = call_mcp_tool('mcp__filesystem__read_file', {'path': './data.json'})
+
+# Ask Claude to summarize
+summary = await llm.ask(f'Summarize this data: {data}')
+
+print(summary)
+"""
+
+result = call_mcp_tool('mcp__code-executor__executePython', {
+    'code': code,
+    'enableSampling': True
+})
+```
+
+### API Reference
+
+**TypeScript API:**
+- `llm.ask(prompt: string, options?)` - Simple query, returns response text
+- `llm.think({messages, model?, maxTokens?, systemPrompt?})` - Multi-turn conversation
+
+**Python API:**
+- `llm.ask(prompt: str, system_prompt='', max_tokens=1000)` - Simple query
+- `llm.think(messages, model='', max_tokens=1000, system_prompt='')` - Multi-turn conversation
+
+### Security Controls
+
+Sampling includes enterprise-grade security controls:
+
+| Control | Description |
+|---------|-------------|
+| **Rate Limiting** | Max 10 rounds, 10,000 tokens per execution (configurable) |
+| **Content Filtering** | Auto-redacts secrets (API keys, tokens) and PII (emails, SSNs) |
+| **System Prompt Allowlist** | Only pre-approved prompts accepted (prevents prompt injection) |
+| **Bearer Token Auth** | 256-bit secure token per bridge session |
+| **Localhost Binding** | Bridge server only accessible locally (no external access) |
+| **Audit Logging** | All calls logged with SHA-256 hashes (no plaintext secrets) |
+
+### Configuration
+
+**Enable Sampling:**
+
+Option 1 - Per-Execution (recommended):
+```typescript
+{ enableSampling: true }
+```
+
+Option 2 - Environment Variable:
+```bash
+export CODE_EXECUTOR_SAMPLING_ENABLED=true
+export CODE_EXECUTOR_MAX_SAMPLING_ROUNDS=10
+export CODE_EXECUTOR_MAX_SAMPLING_TOKENS=10000
+```
+
+Option 3 - Config File (`~/.code-executor/config.json`):
+```json
+{
+  "sampling": {
+    "enabled": true,
+    "maxRoundsPerExecution": 10,
+    "maxTokensPerExecution": 10000,
+    "allowedSystemPrompts": [
+      "",
+      "You are a helpful assistant",
+      "You are a code analysis expert"
+    ]
+  }
+}
+```
+
+### Hybrid Architecture
+
+Code Executor automatically detects the best sampling method:
+1. **MCP SDK Sampling** (free) - If your MCP client supports `sampling/createMessage`
+2. **Direct Anthropic API** (paid) - Fallback if MCP sampling unavailable (requires `ANTHROPIC_API_KEY`)
+
+**⚠️ Claude Code Limitation (as of November 2025)**:
+Claude Code does **not** support MCP sampling yet ([Issue #1785](https://github.com/anthropics/claude-code/issues/1785)). When using Claude Code, sampling will fall back to Direct API mode (requires `ANTHROPIC_API_KEY`).
+
+**Compatible clients with MCP sampling**:
+- ✅ VS Code (v0.20.0+)
+- ✅ GitHub Copilot
+- ❌ Claude Code (pending Issue #1785)
+
+When Claude Code adds sampling support, no code changes are needed - it will automatically switch to free MCP sampling.
+
+### Documentation
+
+See the comprehensive sampling guide: [docs/sampling.md](docs/sampling.md)
+
+**Covers:**
+- What/Why/How with architecture diagrams
+- Complete API reference for TypeScript & Python
+- Security model with threat matrix
+- Configuration guide (env vars, config file, per-execution)
+- Troubleshooting guide (8 common errors)
+- Performance benchmarks (<50ms bridge startup)
+- FAQ (15+ questions)
+
 ## Security (Enterprise-Grade)
 
 Code Executor doesn't just "run code." It secures it:

@@ -180,6 +180,7 @@ export class SamplingBridgeServer {
   private config: SamplingConfig;
   private contentFilter: ContentFilter;
   private samplingMode: 'mcp' | 'direct' = 'direct';
+  private lastSamplingError: string | null = null;
 
   // AJV validator for request body validation
   private ajv: Ajv;
@@ -267,16 +268,17 @@ export class SamplingBridgeServer {
    * Detect which sampling mode to use (MCP SDK vs direct Anthropic API)
    *
    * Detection logic:
-   * 1. Check if mcpServer has request method (MCP SDK available)
+   * 1. Check if mcpServer has createMessage method (MCP SDK sampling capability)
    * 2. If yes → try MCP sampling first
    * 3. If no → use direct Anthropic API
    *
    * @returns 'mcp' if MCP SDK detected, 'direct' for Anthropic API
    */
   private detectSamplingMode(): 'mcp' | 'direct' {
-    // Check if mcpServer has request method (indicates MCP SDK availability)
-    if (this.mcpServer && typeof this.mcpServer.request === 'function') {
-      console.log('[Sampling] MCP SDK detected - will attempt MCP sampling first (free via Claude Desktop)');
+    // Check if mcpServer has createMessage method (indicates MCP SDK sampling capability)
+    // Note: createMessage() is the proper API for LLM sampling in MCP SDK
+    if (this.mcpServer && typeof this.mcpServer.createMessage === 'function') {
+      console.log('[Sampling] MCP SDK detected - will attempt MCP sampling first (free via MCP client)');
       return 'mcp';
     }
 
@@ -400,9 +402,14 @@ export class SamplingBridgeServer {
    * Call Claude via MCP SDK sampling/createMessage
    *
    * This uses the MCP SDK's sampling capability, which is free for users
-   * running Claude Desktop (covered by their subscription).
+   * running MCP-enabled clients (covered by their subscription).
    *
-   * @returns LLMResponse or null if MCP sampling failed
+   * NOTE: As of November 2025, Claude Code does NOT support MCP sampling (Issue #1785).
+   * Compatible clients: VS Code (v0.20.0+), GitHub Copilot.
+   * When Claude Code adds sampling, this will automatically work (no code changes needed).
+   *
+   * @see https://github.com/anthropics/claude-code/issues/1785
+   * @returns LLMResponse or null if MCP sampling failed (triggers Direct API fallback)
    */
   private async callViaMCPSampling(
     messages: LLMMessage[],
@@ -422,19 +429,21 @@ export class SamplingBridgeServer {
         }
       }));
 
-      // Call MCP SDK's sampling/createMessage
-      const response = await this.mcpServer.request({
-        method: 'sampling/createMessage',
-        params: {
-          messages: mcpMessages,
-          modelPreferences: {
-            hints: [{ name: model }]
-          },
-          maxTokens,
-          systemPrompt: systemPrompt || undefined,
-          includeContext: 'none'
-        }
-      }, {});
+      // Call MCP SDK's createMessage() method for sampling (proper API)
+      // Note: Use createMessage() instead of request() for LLM sampling
+      const clientCaps = this.mcpServer.getClientCapabilities();
+      console.log('[Sampling] Client capabilities:', JSON.stringify(clientCaps));
+      console.log('[Sampling] Calling createMessage with', mcpMessages.length, 'messages');
+
+      const response = await this.mcpServer.createMessage({
+        messages: mcpMessages,
+        modelPreferences: {
+          hints: [{ name: model }]
+        },
+        maxTokens,
+        systemPrompt: systemPrompt || undefined,
+        includeContext: 'none'
+      });
 
       console.log('[Sampling] MCP sampling succeeded');
 
@@ -452,7 +461,14 @@ export class SamplingBridgeServer {
       };
 
     } catch (error) {
-      console.error('[Sampling] MCP sampling failed:', error);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      console.error('[Sampling] MCP sampling failed:', errorMsg);
+      console.error('[Sampling] Error stack:', errorStack);
+      console.error('[Sampling] Error type:', error?.constructor?.name);
+
+      // Store error for debugging
+      this.lastSamplingError = errorMsg;
 
       // If MCP sampling fails, update mode and fall back to direct API
       if (this.samplingMode === 'mcp') {
@@ -797,14 +813,21 @@ export class SamplingBridgeServer {
           llmResponse = mcpResponse;
           // MCP SDK might not report token usage, estimate conservatively
           tokensUsed = maxTokens; // Conservative estimate
-          console.log('[Sampling] MCP sampling succeeded (free via Claude Desktop)');
+          console.log('[Sampling] MCP sampling succeeded (free via MCP client)');
         } else {
           // MCP failed, fall back to direct API
           if (!this.anthropic) {
+            const clientCaps = this.mcpServer.getClientCapabilities();
             res.writeHead(503, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               error: 'MCP sampling unavailable and no Anthropic API key configured. ' +
-                     'Set ANTHROPIC_API_KEY environment variable to use direct API.'
+                     'Set ANTHROPIC_API_KEY environment variable to use direct API.',
+              debug: {
+                clientCapabilities: clientCaps,
+                mcpServerType: this.mcpServer.constructor.name,
+                hasSamplingCapability: clientCaps?.sampling !== undefined,
+                lastError: this.lastSamplingError
+              }
             }));
             return;
           }

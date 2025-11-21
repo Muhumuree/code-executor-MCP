@@ -212,6 +212,11 @@ Example:
             net: z.array(z.string()).optional(),
           }).default({}).describe('Deno sandbox permissions'),
           skipDangerousPatternCheck: z.boolean().optional().describe('Skip dangerous pattern validation (defense-in-depth only)'),
+          enableSampling: z.boolean().optional().default(false).describe('Enable LLM sampling (llm.ask/llm.think helpers)'),
+          maxSamplingRounds: z.number().int().min(1).max(100).optional().default(10).describe('Max sampling rounds'),
+          maxSamplingTokens: z.number().int().min(100).max(100000).optional().default(10000).describe('Max sampling tokens'),
+          samplingSystemPrompt: z.string().optional().describe('Custom system prompt for sampling'),
+          allowedSamplingModels: z.array(z.string()).optional().describe('Allowed Claude models for sampling'),
         },
         outputSchema: ExecutionResultSchema.shape,
         annotations: {
@@ -288,7 +293,8 @@ Example:
                 samplingSystemPrompt: input.samplingSystemPrompt,
                 allowedSamplingModels: input.allowedSamplingModels,
               },
-              this.mcpClientPool
+              this.mcpClientPool,
+              this.server.server  // Pass underlying Server instance with request() method for MCP sampling
             );
           });
 
@@ -462,6 +468,11 @@ Example:
             net: z.array(z.string()).optional(),
           }).default({}).describe('Subprocess permissions'),
           skipDangerousPatternCheck: z.boolean().optional().describe('Skip dangerous pattern validation (defense-in-depth only)'),
+          enableSampling: z.boolean().optional().default(false).describe('Enable LLM sampling (llm.ask/llm.think helpers)'),
+          maxSamplingRounds: z.number().int().min(1).max(100).optional().default(10).describe('Max sampling rounds'),
+          maxSamplingTokens: z.number().int().min(100).max(100000).optional().default(10000).describe('Max sampling tokens'),
+          samplingSystemPrompt: z.string().optional().describe('Custom system prompt for sampling'),
+          allowedSamplingModels: z.array(z.string()).optional().describe('Allowed Claude models for sampling'),
         },
         outputSchema: ExecutionResultSchema.shape,
         annotations: {
@@ -537,8 +548,14 @@ Example:
                 timeoutMs: input.timeoutMs,
                 permissions: input.permissions,
                 skipDangerousPatternCheck: skipPatternCheck,
+                enableSampling: input.enableSampling,
+                maxSamplingRounds: input.maxSamplingRounds,
+                maxSamplingTokens: input.maxSamplingTokens,
+                samplingSystemPrompt: input.samplingSystemPrompt,
+                allowedSamplingModels: input.allowedSamplingModels,
               },
-              this.mcpClientPool
+              this.mcpClientPool,
+              this.server.server  // Pass underlying Server instance with request() method for MCP sampling
             );
           });
 

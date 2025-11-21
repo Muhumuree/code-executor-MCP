@@ -66,7 +66,8 @@ exec(open('${userCodeFile}').read())
  */
 export async function executePythonInSandbox(
   options: SandboxOptions,
-  mcpClientPool: MCPClientPool
+  mcpClientPool: MCPClientPool,
+  mcpServer?: any  // Optional MCP server for sampling (McpServer type from SDK)
 ): Promise<ExecutionResult> {
   const startTime = Date.now();
 

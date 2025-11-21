@@ -14,7 +14,7 @@ Sampling Bridge Server
 [Detection Logic]
     ↓
 ├─ Option A: MCP SDK Available? ────→ Use sampling/createMessage (FREE)
-│                                      └─→ Claude Desktop handles auth
+│                                      └─→ MCP client handles auth
 │
 └─ Option B: MCP SDK Unavailable ───→ Use Anthropic SDK (REQUIRES API KEY)
                                        └─→ Direct API call, user pays per-token
@@ -263,7 +263,7 @@ private async callViaAnthropicAPI(
 
 ## User Experience
 
-### Scenario 1: Using Claude Desktop (Best Experience)
+### Scenario 1: Using MCP-Enabled Client (Best Experience)
 
 ```bash
 # User just installs code-executor-mcp
@@ -274,8 +274,8 @@ mcp install code-executor-mcp
 
 **What happens:**
 - MCP sampling auto-detected ✅
-- Uses Claude Desktop's auth ✅
-- Covered by user's $20/month subscription ✅
+- Uses MCP client's auth (Claude Code, Cursor, etc.) ✅
+- Covered by user's subscription ✅
 - No additional cost ✅
 
 ### Scenario 2: Standalone / CI/CD (Fallback)
@@ -288,7 +288,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 **What happens:**
-- MCP sampling unavailable (no Claude Desktop) ⚠️
+- MCP sampling unavailable (no MCP client) ⚠️
 - Falls back to direct API ✅
 - User pays per-token (~$3/1M tokens) 💰
 - Still works! ✅
@@ -296,7 +296,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ### Scenario 3: Neither Available (Error)
 
 ```bash
-# No Claude Desktop, no API key
+# No MCP client, no API key
 # User tries to use sampling
 ```
 
@@ -308,7 +308,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ## Benefits of Hybrid Approach
 
 ### For Users:
-1. **Best case:** Free sampling via Claude Desktop (no setup)
+1. **Best case:** Free sampling via MCP client (no setup)
 2. **Fallback:** Works standalone with API key (flexibility)
 3. **Clear errors:** Never silent failures
 

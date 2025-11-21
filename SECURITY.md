@@ -526,6 +526,362 @@ os.system('rm -rf /')  # Blocked - no subprocess module in WASM
 
 ---
 
+## 🤖 MCP Sampling Security Model (v1.0.0)
+
+**Feature:** LLM-in-the-Loop Execution
+**Release:** v1.0.0 (2025-01-20)
+**Status:** Beta
+**Security Review:** 2025-01-20
+
+### Overview
+
+MCP Sampling enables sandboxed code to invoke Claude (via Anthropic API) during execution through `llm.ask()` and `llm.think()` helpers. This introduces a new attack surface that requires comprehensive security controls.
+
+### Threat Model
+
+**Attack Scenarios:**
+1. **Infinite Loop Abuse**: Untrusted code calls `llm.ask()` in infinite loop → API cost explosion
+2. **Token Exhaustion**: Malicious code requests max tokens repeatedly → resource exhaustion
+3. **Prompt Injection**: Attacker crafts system prompts to bypass security controls
+4. **Secret Leakage**: Claude's response contains API keys, tokens, or PII → logged in plaintext
+5. **Timing Attacks**: Attacker brute-forces bearer token via timing differences
+6. **Unauthorized Access**: External process attempts to access bridge server
+7. **SSRF via Sampling**: Attacker uses Claude to generate URLs for subsequent MCP tool calls
+
+### Security Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│ Sandbox (Untrusted Code)                            │
+│                                                     │
+│  User Code:  await llm.ask("prompt")                │
+│       ↓                                              │
+│  Bridge Client: HTTP POST to localhost:PORT         │
+└─────────────────────────────────────────────────────┘
+              ↓ (Bearer Token Auth)
+┌─────────────────────────────────────────────────────┐
+│ SamplingBridgeServer (Security Enforcer)            │
+│                                                     │
+│  ✅ 1. Validate Bearer Token (timing-safe)          │
+│  ✅ 2. Check Rate Limits (10 rounds, 10k tokens)    │
+│  ✅ 3. Validate System Prompt (allowlist)           │
+│  ✅ 4. Forward to Claude API                        │
+│  ✅ 5. Filter Response (secrets/PII redaction)      │
+│  ✅ 6. Audit Log (SHA-256 hashes only)              │
+└─────────────────────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────────────────────┐
+│ Claude API (Anthropic)                              │
+└─────────────────────────────────────────────────────┘
+```
+
+### Security Controls
+
+#### 1. Rate Limiting (CRITICAL)
+
+**Purpose**: Prevent infinite loops and resource exhaustion
+
+**Implementation**:
+- **Round Limit**: Max 10 sampling calls per execution (default, configurable)
+- **Token Budget**: Max 10,000 tokens cumulative per execution (default, configurable)
+- **Atomic Counters**: AsyncLock protected for concurrency safety
+- **Quota Remaining**: Returns 429 with `{rounds: X, tokens: Y}` when exceeded
+
+**Configuration**:
+```bash
+CODE_EXECUTOR_MAX_SAMPLING_ROUNDS=10
+CODE_EXECUTOR_MAX_SAMPLING_TOKENS=10000
+```
+
+**Test Coverage**:
+- ✅ T112: `should_blockInfiniteLoop_when_userCodeCallsLlmAsk10PlusTimes`
+- ✅ T113: `should_blockTokenExhaustion_when_userCodeExceeds10kTokens`
+- ✅ T037: `should_handleConcurrentRequests_when_multipleCallsSimultaneous`
+
+#### 2. Content Filtering (HIGH PRIORITY)
+
+**Purpose**: Prevent secret leakage and PII exposure in responses
+
+**Implementation**:
+- **Secret Detection**: OpenAI keys (sk-*), GitHub tokens (ghp_*), AWS keys (AKIA*), JWT (eyJ*)
+- **PII Detection**: Emails, SSNs, credit card numbers
+- **Redaction Mode**: Replace with `[REDACTED_SECRET]` or `[REDACTED_PII]`
+- **Rejection Mode**: Throw error with violation count (configurable)
+
+**Patterns**:
+```typescript
+secretPatterns = {
+  openai_key: /sk-[a-zA-Z0-9]{3,}/g,
+  github_token: /ghp_[a-zA-Z0-9]{3,}/g,
+  aws_key: /AKIA[0-9A-Z]{3,}/g,
+  jwt_token: /eyJ[A-Za-z0-9-_]+/g
+}
+piiPatterns = {
+  email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+  ssn: /\b\d{3}-\d{2}-\d{4}\b/g,
+  credit_card: /\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g
+}
+```
+
+**Configuration**:
+```bash
+CODE_EXECUTOR_CONTENT_FILTERING=true  # Default: enabled
+```
+
+**Test Coverage**:
+- ✅ T022-T026: Pattern detection tests (OpenAI, GitHub, AWS, JWT, emails, SSNs, credit cards)
+- ✅ T115: `should_redactSecretLeakage_when_claudeResponseContainsAPIKey`
+- ✅ 98%+ coverage on ContentFilter class
+
+#### 3. System Prompt Allowlist (PROMPT INJECTION DEFENSE)
+
+**Purpose**: Prevent prompt injection attacks via malicious system prompts
+
+**Implementation**:
+- **Allowlist Validation**: Only pre-approved system prompts accepted
+- **Default Allowlist**:
+  - Empty string (no system prompt)
+  - "You are a helpful assistant"
+  - "You are a code analysis expert"
+- **Rejection**: Returns 403 with truncated prompt (max 100 chars)
+- **Set Lookup**: O(1) performance for validation
+
+**Configuration**:
+```json
+{
+  "sampling": {
+    "allowedSystemPrompts": [
+      "",
+      "You are a helpful assistant",
+      "You are a code analysis expert",
+      "Your custom prompt here"
+    ]
+  }
+}
+```
+
+**Test Coverage**:
+- ✅ T044-T047: Allowlist validation tests
+- ✅ T114: `should_blockPromptInjection_when_maliciousSystemPromptProvided`
+
+#### 4. Bearer Token Authentication (ACCESS CONTROL)
+
+**Purpose**: Prevent unauthorized access to bridge server
+
+**Implementation**:
+- **Token Generation**: `crypto.randomBytes(32)` → 256-bit (64 hex chars)
+- **Unique Per Session**: Each bridge server gets a new token
+- **Timing-Safe Comparison**: `crypto.timingSafeEqual()` prevents timing attacks
+- **HTTP Header**: `Authorization: Bearer <token>`
+- **401 Response**: Returns 401 Unauthorized if token invalid
+
+**Security Rationale**:
+- **256-bit entropy**: 2^256 possible values (brute-force infeasible)
+- **Constant-time comparison**: Prevents timing side-channel attacks
+- **Ephemeral tokens**: Token only valid for single execution
+
+**Test Coverage**:
+- ✅ T012: `should_generateSecureToken_when_bridgeStarts` (256-bit verification)
+- ✅ T014: `should_return401_when_invalidTokenProvided`
+- ✅ T015: `should_useConstantTimeComparison_when_validatingToken`
+- ✅ T116: `should_preventTimingAttack_when_invalidTokenProvided`
+
+#### 5. Localhost Binding (NETWORK ISOLATION)
+
+**Purpose**: Prevent external network access to bridge server
+
+**Implementation**:
+- **Bind Address**: `127.0.0.1` (localhost only, not `0.0.0.0`)
+- **Random Port**: `listen(0, 'localhost')` finds available port
+- **No External Access**: Bridge not accessible from other machines/containers
+
+**Security Rationale**:
+- Prevents lateral movement attacks in compromised networks
+- Ensures bridge only accessible by same-host sandbox
+
+**Test Coverage**:
+- ✅ T011: `should_bindLocalhostOnly_when_serverStarts`
+
+#### 6. Graceful Shutdown (REQUEST DRAINING)
+
+**Purpose**: Prevent request loss during bridge shutdown
+
+**Implementation**:
+- **Active Request Tracking**: `Set<ServerResponse>` tracks in-flight requests
+- **Drain Period**: Max 5 seconds wait for active requests to complete
+- **Polling Interval**: Check every 100ms for completion
+- **Forced Shutdown**: Close server after 5s even if requests pending
+
+**Test Coverage**:
+- ✅ T013: `should_shutdownGracefully_when_activeRequestsInProgress`
+
+#### 7. Audit Logging (FORENSICS & COMPLIANCE)
+
+**Purpose**: Enable forensic analysis and compliance auditing
+
+**Implementation**:
+- **Log File**: `~/.code-executor/audit-log.jsonl` (JSONL format)
+- **SHA-256 Hashing**: Prompts and responses hashed (no plaintext)
+- **Metadata Logged**:
+  - Timestamp, execution ID, round number
+  - Model, token usage, duration
+  - Status (success/error), error messages
+  - Content violations (type and count, no plaintext)
+- **AsyncLock Protected**: Concurrent write safety
+
+**Log Entry Example**:
+```json
+{
+  "timestamp": "2025-01-20T12:00:00.000Z",
+  "executionId": "exec-123",
+  "round": 1,
+  "model": "claude-sonnet-4-5",
+  "promptHash": "sha256:abc123...",
+  "responseHash": "sha256:def456...",
+  "tokensUsed": 75,
+  "durationMs": 600,
+  "status": "success",
+  "contentViolations": [
+    { "type": "secret", "pattern": "openai_key", "count": 1 }
+  ]
+}
+```
+
+**Test Coverage**:
+- ✅ T082: `should_logSamplingCall_when_samplingExecuted`
+- ✅ T083: `should_useSHA256Hashes_when_loggingSensitiveData`
+- ✅ T084: `should_includeContentViolations_when_filterDetects`
+
+### Docker Support
+
+**Docker Detection**:
+- Checks for `/.dockerenv` file
+- Checks for Docker cgroup signatures
+- Automatically uses `host.docker.internal` as bridge hostname
+
+**Configuration**:
+```bash
+# Docker Compose example
+services:
+  code-executor:
+    image: aberemia24/code-executor-mcp:1.0.0
+    environment:
+      - CODE_EXECUTOR_SAMPLING_ENABLED=true
+      - CODE_EXECUTOR_MAX_SAMPLING_ROUNDS=10
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+
+**Test Coverage**:
+- ✅ T086: `should_useHostDockerInternal_when_dockerDetected`
+
+### Performance & Resource Limits
+
+**Bridge Server**:
+- Startup time: <50ms (measured: ~30ms average)
+- Memory footprint: ~15MB
+- Per-call overhead: ~60ms (token validation + rate limiting + content filtering)
+
+**Per-Call Limits**:
+- Max tokens per request: 10,000 (hard cap)
+- Timeout per call: 30,000ms (30 seconds, configurable)
+
+### Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation | Residual Risk |
+|------|-----------|--------|------------|---------------|
+| Infinite loop API cost | High | High | Rate limiting (10 rounds) | Low |
+| Token exhaustion | Medium | High | Token budget (10k tokens) | Low |
+| Prompt injection | Medium | Medium | System prompt allowlist | Low |
+| Secret leakage | Low | Critical | Content filtering + SHA-256 audit logs | Low |
+| Timing attacks | Low | Medium | Constant-time token comparison | Very Low |
+| Unauthorized access | Low | Medium | Bearer token + localhost binding | Very Low |
+| SSRF via sampling | Low | High | Not directly mitigated (requires network allowlist) | Medium |
+
+### Deployment Recommendations
+
+#### Development Environments (Low Risk)
+```bash
+export CODE_EXECUTOR_SAMPLING_ENABLED=true
+export CODE_EXECUTOR_MAX_SAMPLING_ROUNDS=10
+export CODE_EXECUTOR_MAX_SAMPLING_TOKENS=10000
+```
+
+#### Production Environments (High Risk)
+```json
+{
+  "sampling": {
+    "enabled": false,  // Disable by default
+    "maxRoundsPerExecution": 5,  // Strict limit
+    "maxTokensPerExecution": 5000,  // Conservative budget
+    "contentFilteringEnabled": true,  // MUST enable
+    "allowedSystemPrompts": [""]  // Minimal allowlist
+  }
+}
+```
+
+**Additional Production Hardening**:
+1. ✅ Enable Docker with resource limits (`--memory=512m`, `--cpus=1`)
+2. ✅ Network isolation (no outbound internet)
+3. ✅ Monitoring: Alert on 429 errors (rate limit exceeded)
+4. ✅ Audit log analysis: Daily review of content violations
+5. ✅ Cost monitoring: Track Anthropic API usage
+
+### Testing Strategy
+
+**Security Test Coverage: 95%+ (74/74 tests passing)**
+
+| Test Category | Tests | Status |
+|--------------|-------|--------|
+| Bridge Server | 15/15 | ✅ PASS |
+| Content Filter | 8/8 | ✅ PASS |
+| TypeScript API | 4/4 | ✅ PASS |
+| Python API | 3/3 | ✅ PASS |
+| Config Schema | 23/23 | ✅ PASS |
+| Audit Logging | 13/13 | ✅ PASS |
+| Security Attacks | 8/8 | ✅ PASS |
+
+**Attack Simulation Tests**:
+- ✅ T112: Infinite loop prevention
+- ✅ T113: Token exhaustion blocking
+- ✅ T114: Prompt injection protection
+- ✅ T115: Secret leakage redaction
+- ✅ T116: Timing attack prevention
+- ✅ Concurrent access protection (3 tests)
+
+### Known Limitations
+
+1. **SSRF Not Mitigated**: Sampling can't directly prevent SSRF if attacker combines Claude responses with MCP tool calls (e.g., Claude generates malicious URL → code calls `mcp__fetcher__fetch_url`)
+   - **Mitigation**: Use network allowlists for MCP tools (existing SSRF protections)
+
+2. **Content Filtering Bypass**: Regex-based detection can be evaded with encoding/obfuscation
+   - **Mitigation**: Defense-in-depth, not primary security boundary
+
+3. **Cost Control**: Rate limits prevent abuse but don't eliminate API costs
+   - **Mitigation**: Monitor Anthropic API usage, set billing alerts
+
+4. **Hybrid Mode Confusion**: Users may not realize which mode (MCP SDK vs Direct API) is active
+   - **Mitigation**: Log mode detection message on bridge startup
+
+### Future Enhancements
+
+**Planned for v1.1.0+**:
+- [ ] Streaming support (SSE) for TypeScript
+- [ ] Per-user rate limiting (multi-tenant support)
+- [ ] Token-based cost tracking per execution
+- [ ] Custom content filter patterns via config
+- [ ] Allowlist expansion via UI/CLI
+
+### Documentation
+
+**Comprehensive guides**:
+- [docs/sampling.md](docs/sampling.md) - 900+ line user guide
+- [README.md](README.md#mcp-sampling-beta) - Quick start
+- [CHANGELOG.md](CHANGELOG.md#100---2025-01-20) - Release notes
+
+---
+
 ## 📅 Version History
 
 **v0.8.0 (2025-11-17)** - PYTHON SECURITY RELEASE

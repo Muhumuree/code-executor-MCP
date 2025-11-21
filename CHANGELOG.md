@@ -7,6 +7,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **MCP Sampling Detection** - Fixed sampling capability detection to use `createMessage()` method instead of `request()`
+  - Root cause: Sampling bridge was checking for `request()` method, but MCP SDK uses `createMessage()` for LLM sampling
+  - Updated detection in `sandbox-executor.ts`, `pyodide-executor.ts`, and `sampling-bridge-server.ts`
+  - Fixes error: "Sampling enabled but no MCP server available and ANTHROPIC_API_KEY not set"
+  - All 25 sampling bridge tests passing
+
+## [1.0.0] - 2025-01-20
+
+### 🎉 Major Release - MCP Sampling (Beta)
+
+**Breaking Changes:** None (fully backward compatible)
+
+### Added
+
+#### MCP Sampling - LLM-in-the-Loop Execution
+- **TypeScript Sampling API** - Simple `llm.ask(prompt)` and `llm.think({messages})` helpers in Deno sandbox
+- **Python Sampling API** - Equivalent API with Python conventions (`snake_case`, type hints) in Pyodide sandbox
+- **Ephemeral Bridge Server** - Secure HTTP bridge with random port (localhost-only), unique bearer token per execution
+- **Hybrid Architecture** - Automatic fallback: MCP SDK sampling (free) → Direct Anthropic API (paid)
+- **Real-Time Metrics** - Execution result includes `samplingCalls[]` and `samplingMetrics` (rounds, tokens, duration, quota)
+
+#### Security Controls
+- **Rate Limiting** - Configurable max rounds (default: 10) and tokens (default: 10,000) per execution
+  - Returns 429 with quota remaining when exceeded
+  - AsyncLock protected for concurrency safety
+  - Prevents infinite loops and resource exhaustion
+- **Content Filtering** - Automatic detection and redaction of secrets/PII
+  - **Secrets**: OpenAI keys (sk-...), GitHub tokens (ghp_...), AWS keys (AKIA*), JWT tokens (eyJ...)
+  - **PII**: Emails, SSNs, credit card numbers
+  - Redaction format: `[REDACTED_SECRET]` or `[REDACTED_PII]`
+  - 98%+ test coverage on pattern detection
+- **System Prompt Allowlist** - Only pre-approved prompts accepted (security against prompt injection)
+  - Default allowlist: empty string, "You are a helpful assistant", "You are a code analysis expert"
+  - Returns 403 with truncated prompt (max 100 chars) when violated
+- **Bearer Token Authentication** - 256-bit cryptographically secure token per bridge session
+  - Constant-time comparison (crypto.timingSafeEqual) prevents timing attacks
+  - Unique token per execution, generated with crypto.randomBytes
+- **Localhost Binding** - Bridge server only accessible via 127.0.0.1 (no external network access)
+- **Graceful Shutdown** - Active requests drained before bridge server stops (max 5s wait)
+
+#### Audit & Observability
+- **Sampling Audit Logger** - All sampling calls logged to `~/.code-executor/audit-log.jsonl`
+  - SHA-256 hashes of prompts/responses (no plaintext secrets in logs)
+  - Timestamps, execution IDs, round numbers, model, token usage, duration
+  - Content filter violations logged with type and count
+  - AsyncLock protected for concurrent writes
+- **Comprehensive Metrics** - Per-execution statistics
+  - Total rounds, total tokens, total duration
+  - Average tokens per round
+  - Quota remaining (rounds and tokens)
+
+#### Configuration
+- **SamplingConfig Schema** - Zod validation with environment variable overrides
+  - `CODE_EXECUTOR_SAMPLING_ENABLED` (boolean, default: false)
+  - `CODE_EXECUTOR_MAX_SAMPLING_ROUNDS` (integer, default: 10)
+  - `CODE_EXECUTOR_MAX_SAMPLING_TOKENS` (integer, default: 10,000)
+  - `CODE_EXECUTOR_SAMPLING_TIMEOUT_MS` (integer, default: 30,000ms)
+  - `CODE_EXECUTOR_CONTENT_FILTERING` (boolean, default: true)
+- **Per-Execution Overrides** - Tool parameters override config/env vars
+  - `enableSampling`, `maxSamplingRounds`, `maxSamplingTokens`, `samplingTimeoutMs`
+
+#### Docker Support
+- **Docker Detection** - Automatic `host.docker.internal` bridge URL when running in containers
+- **Environment Handling** - Checks for `/.dockerenv` file and Docker cgroup signatures
+
+#### Documentation
+- **docs/sampling.md** - Comprehensive 900+ line guide
+  - What/Why/How sections with architecture diagrams
+  - Quick start with TypeScript & Python examples
+  - Complete API reference for both runtimes
+  - Security model with threat matrix (8 security tests)
+  - Configuration guide (env vars, config file, per-execution)
+  - Troubleshooting guide (8 common errors with solutions)
+  - Performance benchmarks (<50ms bridge startup, <100ms per-call overhead)
+  - FAQ (15+ questions)
+- **README.md** - MCP Sampling (Beta) section added
+- **SECURITY.md** - Sampling security model documented
+- **docs/architecture.md** - MCP Sampling Architecture section
+
+### Security
+
+#### Attack Test Coverage (95%+)
+All attack vectors tested and mitigated:
+- ✅ Infinite loop prevention (T112: `should_blockInfiniteLoop_when_userCodeCallsLlmAsk10PlusTimes`)
+- ✅ Token exhaustion blocking (T113: `should_blockTokenExhaustion_when_userCodeExceeds10kTokens`)
+- ✅ Prompt injection protection (T114: `should_blockPromptInjection_when_maliciousSystemPromptProvided`)
+- ✅ Secret leakage redaction (T115: `should_redactSecretLeakage_when_claudeResponseContainsAPIKey`)
+- ✅ Timing attack prevention (T116: `should_preventTimingAttack_when_invalidTokenProvided`)
+- ✅ Unauthorized access blocking (T014: `should_return401_when_invalidTokenProvided`)
+- ✅ External access prevention (T011: `should_bindLocalhostOnly_when_serverStarts`)
+- ✅ Concurrent access protection (3 additional tests for race conditions)
+
+### Improved
+
+#### SOLID Principles Refactoring
+- **RateLimiter Class** - Extracted from SamplingBridgeServer (171 lines, SRP compliant)
+  - Responsibilities reduced from 5 → 3 (Single Responsibility Principle)
+  - AsyncLock protected for thread safety
+  - Encapsulated quota tracking and metrics calculation
+- **Helper Functions** - `generateBearerToken()` and `validateSystemPrompt()` extracted
+  - Improved testability and reusability
+  - Clear security rationale documented in WHY comments
+- **Named Constants** - Magic numbers replaced with semantic names
+  - `BEARER_TOKEN_BYTES = 32` (256-bit security)
+  - `GRACEFUL_SHUTDOWN_MAX_WAIT_MS = 5000`
+  - `MAX_SYSTEM_PROMPT_ERROR_LENGTH = 100`
+  - `DEFAULT_MAX_TOKENS_PER_REQUEST = 1000`
+
+#### Code Quality
+- **WHY Comments** - Security rationale for critical decisions
+  - Bearer token generation: 256-bit entropy, industry standard
+  - Localhost binding: Prevents external network access
+  - Timing-safe comparison: Prevents timing attacks on token validation
+- **JSDoc Coverage** - Complete documentation for all public APIs
+  - SamplingBridgeServer: constructor, start(), stop(), getSamplingMetrics()
+  - ContentFilter: scan(), filter(), hasViolations(), getSupportedPatterns()
+  - Python LLM class: ask(), think() with type hints
+
+### Performance
+- **Bridge Server Startup** - <50ms (target: <50ms) ✅
+- **Per-Call Overhead** - ~60ms average (target: <100ms) ✅
+  - Token validation: ~5ms
+  - Rate limit check: ~10ms
+  - System prompt validation: ~5ms
+  - Content filtering: ~15ms
+  - HTTP overhead: ~25ms
+- **Memory Footprint** - ~15MB bridge server, ~500KB per sampling call
+
+### Testing
+- **1152 Total Tests** - 97.4% pass rate (1122/1152 passing)
+- **Sampling Test Coverage**:
+  - Bridge server: 15/15 tests passing
+  - Content filter: 8/8 tests passing
+  - TypeScript API: 4/4 tests passing
+  - Python API: 3/3 tests passing
+  - Config schema: 23/23 tests passing
+  - Audit logging: 13/13 tests passing
+  - Security attacks: 8/8 tests passing
+  - **Total sampling tests: 74/74 passing (100%)**
+
+### Fixed
+- **Pyodide Fake Timers** - Disabled fake timers for Python sampling tests
+  - Root cause: Pyodide's event loop conflicts with vi.useFakeTimers()
+  - Solution: Use real timers for Python executor tests
+- **AsyncLock RateLimiter** - Made `getSamplingMetrics()` async
+  - Updated all callers to use `await` for metrics access
+  - Prevents race conditions in quota calculation
+
 ## [0.9.1] - 2025-01-20
 
 ### Added

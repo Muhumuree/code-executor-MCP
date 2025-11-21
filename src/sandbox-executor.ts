@@ -38,7 +38,8 @@ function normalizeLineEndings(text: string): string {
  */
 export async function executeTypescriptInSandbox(
   options: SandboxOptions,
-  mcpClientPool: MCPClientPool
+  mcpClientPool: MCPClientPool,
+  mcpServer?: any  // Optional MCP server for sampling (McpServer type from SDK)
 ): Promise<ExecutionResult> {
   const startTime = Date.now();
 
@@ -103,26 +104,24 @@ export async function executeTypescriptInSandbox(
       allowedModels: options.allowedSamplingModels || ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022']
     };
 
-    // Create Anthropic client for Claude API access
-    // SECURITY: ANTHROPIC_API_KEY required when sampling enabled (Constitutional Principle 4)
+    // Create Anthropic client for Claude API access (OPTIONAL - only needed if MCP sampling unavailable)
+    // Hybrid Architecture: Try MCP sampling first (free), fallback to Direct API (paid)
     const apiKey = getAnthropicApiKey();
-    if (!apiKey) {
+    const anthropic = apiKey ? new Anthropic({ apiKey }) : undefined;
+
+    // Use real MCP server if provided (must have createMessage method), otherwise sampling will require API key
+    // MCP server enables free sampling via MCP SDK (createMessage capability)
+    // Check for createMessage() method (proper MCP SDK sampling API)
+    const hasValidMcpServer = mcpServer && typeof mcpServer.createMessage === 'function';
+
+    if (!hasValidMcpServer && !anthropic) {
       throw new Error(
-        'Sampling enabled but ANTHROPIC_API_KEY not set. ' +
-        'Export ANTHROPIC_API_KEY=<your-key> before running with enableSampling: true'
+        'Sampling enabled but no MCP server available and ANTHROPIC_API_KEY not set. ' +
+        'Either run within an MCP client (free) or export ANTHROPIC_API_KEY=<your-key> (paid)'
       );
     }
-    const anthropic = new Anthropic({ apiKey });
 
-    // Create mock MCP server (we don't actually need it for sampling)
-    // NOTE: SamplingBridgeServer accepts Server | any, so no type assertion needed
-    const mockMcpServer = {
-      request: async () => {
-        throw new Error('Not implemented');
-      }
-    };
-
-    samplingBridge = new SamplingBridgeServer(mockMcpServer, samplingConfig, undefined, anthropic);
+    samplingBridge = new SamplingBridgeServer(hasValidMcpServer ? mcpServer : {}, samplingConfig, undefined, anthropic);
 
     try {
       const bridgeInfo = await samplingBridge.start();
@@ -391,7 +390,9 @@ globalThis.llm = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || 'Sampling call failed');
+      const errorMsg = error.error || 'Sampling call failed';
+      const debugInfo = error.debug ? '\\n\\nDebug Info:\\n' + JSON.stringify(error.debug, null, 2) : '';
+      throw new Error(errorMsg + debugInfo);
     }
 
     // Handle streaming response
@@ -435,7 +436,9 @@ globalThis.llm = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || 'Sampling call failed');
+      const errorMsg = error.error || 'Sampling call failed';
+      const debugInfo = error.debug ? '\\n\\nDebug Info:\\n' + JSON.stringify(error.debug, null, 2) : '';
+      throw new Error(errorMsg + debugInfo);
     }
 
     // Handle streaming response
