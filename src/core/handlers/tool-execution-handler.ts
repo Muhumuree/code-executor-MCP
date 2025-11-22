@@ -27,10 +27,10 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { IRequestHandler, HandlerDependencies } from './request-handler.interface.js';
-import type { AllowlistValidator, ToolCallTracker } from '../proxy-helpers.js';
-import type { SchemaCache } from '../schema-cache.js';
-import type { SchemaValidator } from '../schema-validator.js';
-import { normalizeError } from '../utils.js';
+import type { AllowlistValidator, ToolCallTracker } from '../../mcp/proxy-helpers.js';
+import type { SchemaCache } from '../../validation/schema-cache.js';
+import type { SchemaValidator } from '../../validation/schema-validator.js';
+import { normalizeError } from '../../utils/utils.js';
 
 /**
  * Tool execution handler options

@@ -29,10 +29,10 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { IRequestHandler, HandlerDependencies } from './request-handler.interface.js';
-import type { SchemaCache } from '../schema-cache.js';
-import type { RateLimiter } from '../rate-limiter.js';
-import type { ToolSchema } from '../types/discovery.js';
-import { normalizeError } from '../utils.js';
+import type { SchemaCache } from '../../validation/schema-cache.js';
+import type { RateLimiter } from '../../security/rate-limiter.js';
+import type { ToolSchema } from '../../types/discovery.js';
+import { normalizeError } from '../../utils/utils.js';
 
 /**
  * Discovery handler options

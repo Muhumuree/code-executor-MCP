@@ -12,10 +12,10 @@
  * - Automatic eviction of least recently used schemas
  */
 
-import type { IToolSchemaProvider, CachedToolSchema } from './types.js';
-import type { ICacheProvider } from './cache-provider.js';
-import { LRUCacheProvider } from './lru-cache-provider.js';
-import { normalizeError, isErrnoException } from './utils.js';
+import type { IToolSchemaProvider, CachedToolSchema } from '../types.js';
+import type { ICacheProvider } from '../caching/cache-provider.js';
+import { LRUCacheProvider } from '../caching/lru-cache-provider.js';
+import { normalizeError, isErrnoException } from '../utils/utils.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';

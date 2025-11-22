@@ -7,9 +7,9 @@
  * 3. Defaults
  */
 
-import { configDiscovery } from './config-discovery.js';
-import type { Config } from './config-types.js';
-import { PoolConfigSchema, type PoolConfig, SamplingConfigSchema, type SamplingConfig } from './config-types.js';
+import { configDiscovery } from './discovery.js';
+import type { Config } from './types.js';
+import { PoolConfigSchema, type PoolConfig, SamplingConfigSchema, type SamplingConfig } from './types.js';
 import { z } from 'zod';
 
 /**
@@ -312,15 +312,28 @@ export function getSamplingConfig(): SamplingConfig {
   const allowedPrompts = process.env.CODE_EXECUTOR_ALLOWED_SYSTEM_PROMPTS
     ? process.env.CODE_EXECUTOR_ALLOWED_SYSTEM_PROMPTS.split(',').map(s => s.trim())
     : undefined;
+  const allowedModels = process.env.CODE_EXECUTOR_ALLOWED_MODELS
+    ? process.env.CODE_EXECUTOR_ALLOWED_MODELS.split(',').map(s => s.trim())
+    : undefined;
 
   try {
     return SamplingConfigSchema.parse({
       enabled: parseEnvBool(process.env.CODE_EXECUTOR_SAMPLING_ENABLED, 'CODE_EXECUTOR_SAMPLING_ENABLED'),
+      provider: process.env.CODE_EXECUTOR_AI_PROVIDER,
+      apiKeys: {
+        anthropic: process.env.ANTHROPIC_API_KEY,
+        openai: process.env.OPENAI_API_KEY,
+        gemini: process.env.GEMINI_API_KEY,
+        grok: process.env.GROK_API_KEY,
+        perplexity: process.env.PERPLEXITY_API_KEY,
+      },
+      baseUrl: process.env.CODE_EXECUTOR_AI_BASE_URL,
       maxRoundsPerExecution: parseEnvInt(process.env.CODE_EXECUTOR_MAX_SAMPLING_ROUNDS, 'CODE_EXECUTOR_MAX_SAMPLING_ROUNDS'),
       maxTokensPerExecution: parseEnvInt(process.env.CODE_EXECUTOR_MAX_SAMPLING_TOKENS, 'CODE_EXECUTOR_MAX_SAMPLING_TOKENS'),
       timeoutPerCallMs: parseEnvInt(process.env.CODE_EXECUTOR_SAMPLING_TIMEOUT_MS, 'CODE_EXECUTOR_SAMPLING_TIMEOUT_MS'),
       allowedSystemPrompts: allowedPrompts,
       contentFilteringEnabled: parseEnvBool(process.env.CODE_EXECUTOR_CONTENT_FILTERING_ENABLED, 'CODE_EXECUTOR_CONTENT_FILTERING_ENABLED'),
+      allowedModels: allowedModels,
     });
   } catch (error) {
     // WHY: Wrap Zod errors with user-friendly messages
@@ -330,6 +343,7 @@ export function getSamplingConfig(): SamplingConfig {
       throw new Error(
         `Invalid sampling configuration: ${field} - ${firstError?.message}. ` +
         `Check environment variables: CODE_EXECUTOR_SAMPLING_ENABLED (true/false), ` +
+        `CODE_EXECUTOR_AI_PROVIDER (anthropic/openai/gemini/grok/perplexity), ` +
         `CODE_EXECUTOR_MAX_SAMPLING_ROUNDS (1-100), CODE_EXECUTOR_MAX_SAMPLING_TOKENS (100-100000), ` +
         `CODE_EXECUTOR_SAMPLING_TIMEOUT_MS (1000-600000), ` +
         `CODE_EXECUTOR_ALLOWED_SYSTEM_PROMPTS (comma-separated list), ` +
@@ -348,20 +362,6 @@ export function getSamplingConfig(): SamplingConfig {
  * - Centralizes access to ANTHROPIC_API_KEY environment variable
  * - Replaces direct process.env access (violates coding standards)
  * - Provides clear error messages when key is missing
- * - Follows same pattern as other config functions
- *
- * **Security:**
- * - API key should NEVER be in config files (secrets should be in environment)
- * - Key is required when sampling is enabled
- * - Validation happens at usage time (not config init time)
- *
- * @returns Anthropic API key or undefined if not set
- */
-export function getAnthropicApiKey(): string | undefined {
-  return process.env.ANTHROPIC_API_KEY;
-}
-
-/**
  * Get Docker container environment variable
  *
  * **WHY This Function?**

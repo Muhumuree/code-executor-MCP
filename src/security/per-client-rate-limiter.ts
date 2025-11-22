@@ -18,7 +18,7 @@
  */
 
 import AsyncLock from 'async-lock';
-import type { IRateLimiter, RateLimitResult } from './interfaces/rate-limiter.js';
+import type { IRateLimiter, RateLimitResult } from '../observability/interfaces/rate-limiter.js';
 
 export interface RateLimitConfig {
   /** Maximum requests allowed per window */

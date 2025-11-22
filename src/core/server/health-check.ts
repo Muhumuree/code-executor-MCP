@@ -5,9 +5,9 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse, Server } from 'http';
-import type { MCPClientPool } from './mcp-client-pool.js';
-import type { ConnectionPool } from './connection-pool.js';
-import { VERSION } from './version.js';
+import type { MCPClientPool } from '../../mcp/client-pool.js';
+import type { ConnectionPool } from '../../mcp/connection-pool.js';
+import { VERSION } from '../../version.js';
 
 /**
  * Health status response format (K8s-compatible)

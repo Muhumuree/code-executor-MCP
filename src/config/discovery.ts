@@ -11,8 +11,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { homedir } from 'os';
-import { ConfigSchema } from './config-types.js';
-import type { Config, PartialConfig } from './config-types.js';
+import { ConfigSchema } from './types.js';
+import type { Config, PartialConfig } from './types.js';
 
 /**
  * Configuration file search paths (in priority order)

@@ -7,20 +7,20 @@
 
 import * as http from 'http';
 import * as crypto from 'crypto';
-import { normalizeError } from './utils.js';
-import { AllowlistValidator, ToolCallTracker } from './proxy-helpers.js';
-import { SchemaCache } from './schema-cache.js';
-import { SchemaValidator } from './schema-validator.js';
-import { RateLimiter } from './rate-limiter.js';
-import { MetricsExporter } from './metrics-exporter.js';
-import type { MCPClientPool } from './mcp-client-pool.js';
-import type { ToolCallSummaryEntry } from './types.js';
+import { normalizeError } from '../../utils/utils.js';
+import { AllowlistValidator, ToolCallTracker } from '../../mcp/proxy-helpers.js';
+import { SchemaCache } from '../../validation/schema-cache.js';
+import { SchemaValidator } from '../../validation/schema-validator.js';
+import { RateLimiter } from '../../security/rate-limiter.js';
+import { MetricsExporter } from '../../observability/metrics-exporter.js';
+import type { MCPClientPool } from '../../mcp/client-pool.js';
+import type { ToolCallSummaryEntry } from '../../types.js';
 
 // SMELL-001: Import handler classes
-import { MetricsRequestHandler } from './handlers/metrics-request-handler.js';
-import { HealthCheckHandler } from './handlers/health-check-handler.js';
-import { DiscoveryRequestHandler } from './handlers/discovery-request-handler.js';
-import { ToolExecutionHandler } from './handlers/tool-execution-handler.js';
+import { MetricsRequestHandler } from '../handlers/metrics-request-handler.js';
+import { HealthCheckHandler } from '../handlers/health-check-handler.js';
+import { DiscoveryRequestHandler } from '../handlers/discovery-request-handler.js';
+import { ToolExecutionHandler } from '../handlers/tool-execution-handler.js';
 
 // Configuration constants
 const MAX_SEARCH_QUERY_LENGTH = 100; // Maximum characters allowed in search query (prevents DoS)

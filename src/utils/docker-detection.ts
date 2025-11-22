@@ -17,7 +17,7 @@
  */
 
 import { existsSync } from 'fs';
-import { getDockerContainer } from './config.js';
+import { getDockerContainer } from '../config/loader.js';
 
 /**
  * Check if running inside Docker container

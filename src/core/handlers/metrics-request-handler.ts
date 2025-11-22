@@ -20,8 +20,8 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { IRequestHandler } from './request-handler.interface.js';
-import type { MetricsExporter } from '../metrics-exporter.js';
-import { normalizeError } from '../utils.js';
+import type { MetricsExporter } from '../../observability/metrics-exporter.js';
+import { normalizeError } from '../../utils/utils.js';
 
 /**
  * Handles GET /metrics - Prometheus Metrics Endpoint

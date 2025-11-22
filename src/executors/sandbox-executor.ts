@@ -8,15 +8,14 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as crypto from 'crypto';
-import { getDenoPath, getAnthropicApiKey } from './config.js';
-import { sanitizeOutput, truncateOutput, formatDuration, normalizeError } from './utils.js';
-import { MCPProxyServer } from './mcp-proxy-server.js';
-import { StreamingProxy } from './streaming-proxy.js';
-import { SamplingBridgeServer } from './sampling-bridge-server.js';
-import { getBridgeHostname } from './docker-detection.js';
-import Anthropic from '@anthropic-ai/sdk';
-import type { ExecutionResult, SandboxOptions, SamplingConfig, LLMResponse } from './types.js';
-import type { MCPClientPool } from './mcp-client-pool.js';
+import { getDenoPath, getSamplingConfig } from '../config/loader.js';
+import { sanitizeOutput, truncateOutput, formatDuration, normalizeError } from '../utils/utils.js';
+import { MCPProxyServer } from '../core/server/mcp-proxy-server.js';
+import { StreamingProxy } from '../core/middleware/streaming-proxy.js';
+import { SamplingBridgeServer } from '../core/server/sampling-bridge-server.js';
+import { getBridgeHostname } from '../utils/docker-detection.js';
+import type { ExecutionResult, SandboxOptions, SamplingConfig, LLMResponse } from '../types.js';
+import type { MCPClientPool } from '../mcp/client-pool.js';
 
 // Configuration constants
 const DISCOVERY_TIMEOUT_MS = 500; // Discovery endpoint timeout (matches NFR-2 requirement)
@@ -90,38 +89,27 @@ export async function executeTypescriptInSandbox(
 
   if (options.enableSampling) {
     // Create sampling configuration from options and defaults
+    const baseConfig = getSamplingConfig();
     samplingConfig = {
+      ...baseConfig,
       enabled: true,
-      maxRoundsPerExecution: options.maxSamplingRounds || 10,
-      maxTokensPerExecution: options.maxSamplingTokens || 10000,
-      timeoutPerCallMs: 30000, // 30 seconds per call
-      allowedSystemPrompts: [
-        '', // Empty prompt always allowed
-        'You are a helpful assistant',
-        'You are a code analysis expert'
-      ],
-      contentFilteringEnabled: true,
-      allowedModels: options.allowedSamplingModels || ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022']
+      maxRoundsPerExecution: options.maxSamplingRounds || baseConfig.maxRoundsPerExecution,
+      maxTokensPerExecution: options.maxSamplingTokens || baseConfig.maxTokensPerExecution,
+      allowedSystemPrompts: baseConfig.allowedSystemPrompts,
+      contentFilteringEnabled: baseConfig.contentFilteringEnabled,
+      allowedModels: options.allowedSamplingModels || baseConfig.allowedModels
     };
-
-    // Create Anthropic client for Claude API access (OPTIONAL - only needed if MCP sampling unavailable)
-    // Hybrid Architecture: Try MCP sampling first (free), fallback to Direct API (paid)
-    const apiKey = getAnthropicApiKey();
-    const anthropic = apiKey ? new Anthropic({ apiKey }) : undefined;
 
     // Use real MCP server if provided (must have createMessage method), otherwise sampling will require API key
     // MCP server enables free sampling via MCP SDK (createMessage capability)
     // Check for createMessage() method (proper MCP SDK sampling API)
     const hasValidMcpServer = mcpServer && typeof mcpServer.createMessage === 'function';
 
-    if (!hasValidMcpServer && !anthropic) {
-      throw new Error(
-        'Sampling enabled but no MCP server available and ANTHROPIC_API_KEY not set. ' +
-        'Either run within an MCP client (free) or export ANTHROPIC_API_KEY=<your-key> (paid)'
-      );
-    }
+    // Note: We no longer check for API keys here because the SamplingBridgeServer
+    // will check for the configured provider's API key during initialization or execution.
+    // If no provider key is available and no MCP server is present, it will fail gracefully later.
 
-    samplingBridge = new SamplingBridgeServer(hasValidMcpServer ? mcpServer : {}, samplingConfig, undefined, anthropic);
+    samplingBridge = new SamplingBridgeServer(hasValidMcpServer ? mcpServer : {}, samplingConfig);
 
     try {
       const bridgeInfo = await samplingBridge.start();

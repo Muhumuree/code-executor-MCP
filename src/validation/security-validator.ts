@@ -3,10 +3,10 @@
  */
 
 import * as fs from 'fs/promises';
-import { isAuditLogEnabled, getAuditLogPath, getAllowedReadPaths } from './config.js';
-import { isValidMCPToolName, isAllowedPath, hashCode } from './utils.js';
+import { isAuditLogEnabled, getAuditLogPath, getAllowedReadPaths } from '../config/loader.js';
+import { isValidMCPToolName, isAllowedPath, hashCode } from '../utils/utils.js';
 import { validateNetworkPermissions } from './network-security.js';
-import type { AuditLogEntry, CodeValidationResult, SandboxPermissions } from './types.js';
+import type { AuditLogEntry, CodeValidationResult, SandboxPermissions } from '../types.js';
 
 /**
  * Dangerous code patterns to block

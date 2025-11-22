@@ -4,7 +4,7 @@
  * Extracted to follow Single Responsibility Principle (SRP)
  */
 
-import type { ToolCallStatus, ToolCallSummaryEntry } from './types.js';
+import type { ToolCallStatus, ToolCallSummaryEntry } from '../types.js';
 
 /**
  * Validates tool calls against allowlist

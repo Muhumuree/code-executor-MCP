@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import AsyncLock from 'async-lock';
-import { FileSystemService } from './filesystem.js';
+import { FileSystemService } from '../utils/filesystem.js';
 
 /**
  * Configuration file manager for CLI operations.

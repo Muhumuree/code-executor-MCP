@@ -12,7 +12,7 @@ import * as path from 'path';
 import { homedir } from 'os';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { getMCPConfigPath } from './config.js';
+import { getMCPConfigPath } from '../config/loader.js';
 import { Ajv, type ErrorObject } from 'ajv';
 
 const WRAPPERS_DIR = path.join(homedir(), '.code-executor', 'wrappers');

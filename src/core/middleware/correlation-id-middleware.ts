@@ -115,7 +115,7 @@ function extractCorrelationId(req: IncomingMessage): string | undefined {
  *
  * USAGE:
  * ```typescript
- * import { correlationIdMiddleware } from './correlation-id-middleware.js';
+ * import { correlationIdMiddleware } from './middleware/correlation-id-middleware.js';
  *
  * server.on('request', (req, res) => {
  *   correlationIdMiddleware(req, res, () => {

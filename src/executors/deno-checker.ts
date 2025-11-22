@@ -6,7 +6,7 @@
  */
 
 import { spawn } from 'child_process';
-import { getDenoPath } from './config.js';
+import { getDenoPath } from '../config/loader.js';
 
 let denoAvailable: boolean | null = null;
 let denoVersion: string | null = null;

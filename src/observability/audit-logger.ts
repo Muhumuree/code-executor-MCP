@@ -21,7 +21,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import AsyncLock from 'async-lock';
 import { z } from 'zod';
-import { normalizeError } from './utils.js';
+import { normalizeError } from '../utils/utils.js';
 import type { IAuditLogger, AuditLogEntry } from './interfaces/audit-logger.js';
 
 /**

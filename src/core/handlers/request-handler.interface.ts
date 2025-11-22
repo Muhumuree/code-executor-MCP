@@ -12,8 +12,8 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
-import type { MCPClientPool } from '../mcp-client-pool.js';
-import type { MetricsExporter } from '../metrics-exporter.js';
+import type { MCPClientPool } from '../../mcp/client-pool.js';
+import type { MetricsExporter } from '../../observability/metrics-exporter.js';
 
 /**
  * HTTP request handler interface

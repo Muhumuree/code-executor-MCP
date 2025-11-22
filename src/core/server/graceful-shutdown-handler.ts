@@ -18,7 +18,7 @@
  */
 
 import type { Server } from 'http';
-import type { IAuditLogger } from './interfaces/audit-logger.js';
+import type { IAuditLogger } from '../../observability/interfaces/audit-logger.js';
 
 /**
  * Connection Queue interface (minimal - for type safety)

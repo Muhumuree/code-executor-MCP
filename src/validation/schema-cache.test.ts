@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { SchemaCache } from './schema-cache.js';
-import type { MCPClientPool } from './mcp-client-pool.js';
+import type { MCPClientPool } from './mcp/client-pool.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';

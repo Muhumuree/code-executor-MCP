@@ -21,7 +21,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { IRequestHandler, HandlerDependencies } from './request-handler.interface.js';
-import type { SchemaCache } from '../schema-cache.js';
+import type { SchemaCache } from '../../validation/schema-cache.js';
 
 /**
  * Health check response structure

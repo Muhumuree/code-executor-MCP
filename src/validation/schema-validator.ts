@@ -9,7 +9,7 @@
  */
 
 import { Ajv } from 'ajv';
-import type { CachedToolSchema } from './types.js';
+import type { CachedToolSchema } from '../types.js';
 import { AjvErrorFormatter } from './ajv-error-formatter.js';
 import type { FormattedError } from './ajv-error-formatter.js';
 

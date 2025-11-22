@@ -330,6 +330,18 @@ export interface ErrorResponse {
 export interface SamplingConfig {
   /** Whether sampling is enabled (must be explicitly set to true) */
   enabled: boolean;
+  /** AI Provider to use (default: anthropic) */
+  provider: 'anthropic' | 'openai' | 'gemini' | 'grok' | 'perplexity';
+  /** API Keys for providers */
+  apiKeys?: {
+    anthropic?: string;
+    openai?: string;
+    gemini?: string;
+    grok?: string;
+    perplexity?: string;
+  };
+  /** Custom base URL for OpenAI-compatible providers */
+  baseUrl?: string;
   /** Maximum rounds per execution (default: 10) */
   maxRoundsPerExecution: number;
   /** Maximum tokens per execution across all rounds (default: 10000) */
@@ -383,32 +395,9 @@ export interface SamplingMetrics {
   };
 }
 
-/**
- * LLM message format (compatible with Claude API)
- */
-export interface LLMMessage {
-  /** Message role */
-  role: 'user' | 'assistant' | 'system';
-  /** Message content (can be text or complex objects) */
-  content: string | Array<{ type: 'text'; text: string } | { type: 'image'; source: any }>;
-}
+import type { LLMMessage, LLMResponse } from './sampling/providers/types.js';
 
-/**
- * LLM response format (compatible with Claude API)
- */
-export interface LLMResponse {
-  /** Response content */
-  content: Array<{ type: 'text'; text: string }>;
-  /** Reason the response ended */
-  stopReason?: string;
-  /** Model used for generation */
-  model: string;
-  /** Token usage information */
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-  };
-}
+export type { LLMMessage, LLMResponse };
 
 /**
  * Sampling audit log entry for security monitoring

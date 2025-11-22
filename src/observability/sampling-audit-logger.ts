@@ -18,7 +18,7 @@
 import { createHash } from 'crypto';
 import AsyncLock from 'async-lock';
 import { AuditLogger } from './audit-logger.js';
-import type { SamplingAuditEntry } from './types.js';
+import type { SamplingAuditEntry } from '../types.js';
 
 /**
  * Sampling-specific audit logger

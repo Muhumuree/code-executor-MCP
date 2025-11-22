@@ -11,15 +11,15 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
-import { getMCPConfigPath, getPoolConfig } from './config.js';
-import { isValidMCPToolName, normalizeError, isErrnoException } from './utils.js';
-import type { MCPConfig, MCPServerConfig, ToolInfo, ProcessInfo, StdioServerConfig, HttpServerConfig } from './types.js';
-import { isStdioConfig, isHttpConfig } from './types.js';
-import type { IToolSchemaProvider, CachedToolSchema } from './types.js';
-import type { ToolSchema } from './types/discovery.js';
-import type { SchemaCache } from './schema-cache.js';
+import { getMCPConfigPath, getPoolConfig } from '../config/loader.js';
+import { isValidMCPToolName, normalizeError, isErrnoException } from '../utils/utils.js';
+import type { MCPConfig, MCPServerConfig, ToolInfo, ProcessInfo, StdioServerConfig, HttpServerConfig } from '../types.js';
+import { isStdioConfig, isHttpConfig } from '../types.js';
+import type { IToolSchemaProvider, CachedToolSchema } from '../types.js';
+import type { ToolSchema } from '../types/discovery.js';
+import type { SchemaCache } from '../validation/schema-cache.js';
 import { ConnectionQueue } from './connection-queue.js';
-import type { MetricsExporter } from './metrics-exporter.js';
+import type { MetricsExporter } from '../observability/metrics-exporter.js';
 
 /**
  * MCP Client Pool Configuration (US4: FR-4)
@@ -119,7 +119,7 @@ export class MCPClientPool implements IToolSchemaProvider {
 
       // Always load and merge multiple configs (global + project)
       // Even if configPath is provided, we still want to merge with global configs
-      const { getAllMCPConfigPaths } = await import('./config.js');
+      const { getAllMCPConfigPaths } = await import('../config/loader.js');
       let configPaths: string[];
 
       // DEBUG: Log what configPath was passed

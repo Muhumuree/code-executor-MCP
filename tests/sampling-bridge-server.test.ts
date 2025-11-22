@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SamplingBridgeServer } from '../src/sampling-bridge-server';
 import { createServer } from 'http';
-import Anthropic from '@anthropic-ai/sdk';
+import type { LLMProvider, LLMMessage, LLMResponse } from '../src/sampling/providers/types.js';
 
 // Mock MCP server for testing
 const mockMcpServer = {
@@ -12,20 +12,29 @@ const mockMcpServer = {
   })
 };
 
-// Mock Anthropic client
-const mockAnthropic = {
-  messages: {
-    create: vi.fn().mockResolvedValue({
-      content: [{ type: 'text', text: 'Mock Claude response' }],
-      stop_reason: 'end_turn',
-      model: 'claude-3-5-haiku-20241022',
-      usage: {
-        input_tokens: 10,
-        output_tokens: 20
-      }
-    })
+// Mock Provider
+class MockProvider implements LLMProvider {
+  constructor(private shouldFail: boolean = false) { }
+
+  validateApiKey(): boolean { return true; }
+
+  async generateMessage(messages: LLMMessage[], systemPrompt?: string, model?: string, maxTokens?: number): Promise<LLMResponse> {
+    if (this.shouldFail) throw new Error('Provider error');
+    return {
+      content: [{ type: 'text', text: 'Mock response' }],
+      stopReason: 'end_turn',
+      model: model || 'test-model',
+      usage: { inputTokens: 10, outputTokens: 20 }
+    };
   }
-} as unknown as Anthropic;
+
+  async *streamMessage(messages: LLMMessage[], systemPrompt?: string, model?: string, maxTokens?: number): AsyncGenerator<any> {
+    if (this.shouldFail) throw new Error('Provider error');
+    yield { type: 'chunk', content: 'Mock' };
+    yield { type: 'chunk', content: ' response' };
+    yield { type: 'usage', inputTokens: 10, outputTokens: 20 };
+  }
+}
 
 // Setup fake timers for rate limiting tests
 beforeEach(() => {
@@ -40,7 +49,6 @@ afterEach(() => {
 describe('SamplingBridgeServer', () => {
   describe('Bridge Server Lifecycle', () => {
     it('should_startBridge_when_samplingEnabled', async () => {
-      // RED: This test will fail until SamplingBridgeServer is implemented
       const bridge = new SamplingBridgeServer(mockMcpServer as any);
       const result = await bridge.start();
 
@@ -54,7 +62,6 @@ describe('SamplingBridgeServer', () => {
     });
 
     it('should_bindLocalhostOnly_when_serverStarts', async () => {
-      // RED: This test will fail until implementation
       const bridge = new SamplingBridgeServer(mockMcpServer as any);
       await bridge.start();
 
@@ -64,7 +71,6 @@ describe('SamplingBridgeServer', () => {
     });
 
     it('should_generateSecureToken_when_bridgeStarts', async () => {
-      // RED: This test will fail until implementation
       const bridge1 = new SamplingBridgeServer(mockMcpServer as any);
       const bridge2 = new SamplingBridgeServer(mockMcpServer as any);
 
@@ -78,7 +84,6 @@ describe('SamplingBridgeServer', () => {
     });
 
     it('should_shutdownGracefully_when_activeRequestsInProgress', async () => {
-      // RED: This test will fail until implementation
       const bridge = new SamplingBridgeServer(mockMcpServer as any);
       await bridge.start();
 
@@ -100,6 +105,7 @@ describe('SamplingBridgeServer', () => {
     beforeEach(async () => {
       bridge = new SamplingBridgeServer(mockMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 10,
         maxTokensPerExecution: 10000,
         timeoutPerCallMs: 30000,
@@ -174,33 +180,22 @@ describe('SamplingBridgeServer', () => {
   describe('Rate Limiting', () => {
     let bridge: SamplingBridgeServer;
     let serverInfo: { port: number; authToken: string };
-    let mockAnthropic: Anthropic;
+    let mockProvider: MockProvider;
 
     beforeEach(async () => {
       // Create fresh mock for each test
-      mockAnthropic = {
-        messages: {
-          create: vi.fn().mockResolvedValue({
-            content: [{ type: 'text', text: 'Mock Claude response' }],
-            stop_reason: 'end_turn',
-            model: 'claude-3-5-haiku-20241022',
-            usage: {
-              input_tokens: 10,
-              output_tokens: 20
-            }
-          })
-        }
-      } as unknown as Anthropic;
+      mockProvider = new MockProvider();
 
       bridge = new SamplingBridgeServer(mockMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 10,
         maxTokensPerExecution: 10000,
         timeoutPerCallMs: 30000,
         allowedSystemPrompts: ['You are a helpful assistant'],
         contentFilteringEnabled: false,
         allowedModels: ['claude-3-5-haiku-20241022']
-      }, undefined, mockAnthropic);
+      }, mockProvider);
       serverInfo = await bridge.start();
     });
 
@@ -267,29 +262,16 @@ describe('SamplingBridgeServer', () => {
 
     it('should_enforceTokenBudget_when_10kTokensExceeded', async () => {
       // Create a bridge with lower token limit for testing
-      const lowTokenMockAnthropic = {
-        messages: {
-          create: vi.fn().mockResolvedValue({
-            content: [{ type: 'text', text: 'Mock Claude response' }],
-            stop_reason: 'end_turn',
-            model: 'claude-3-5-haiku-20241022',
-            usage: {
-              input_tokens: 10,
-              output_tokens: 20 // 30 tokens per call
-            }
-          })
-        }
-      } as unknown as Anthropic;
-
       const lowTokenBridge = new SamplingBridgeServer(mockMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 100, // High round limit
         maxTokensPerExecution: 100, // Low token limit (100 tokens)
         timeoutPerCallMs: 30000,
         allowedSystemPrompts: ['You are a helpful assistant'],
         contentFilteringEnabled: false,
         allowedModels: ['claude-3-5-haiku-20241022']
-      }, undefined, lowTokenMockAnthropic);
+      }, new MockProvider());
       const lowTokenInfo = await lowTokenBridge.start();
 
       try {
@@ -404,13 +386,14 @@ describe('SamplingBridgeServer', () => {
     beforeEach(async () => {
       bridge = new SamplingBridgeServer(mockMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 10,
         maxTokensPerExecution: 10000,
         timeoutPerCallMs: 30000,
         allowedSystemPrompts: ['', 'You are a helpful assistant', 'You are a code analysis expert'],
         contentFilteringEnabled: false,
         allowedModels: ['claude-3-5-haiku-20241022']
-      }, undefined, mockAnthropic);
+      }, new MockProvider());
       serverInfo = await bridge.start();
     });
 
@@ -501,12 +484,12 @@ describe('SamplingBridgeServer', () => {
       expect(response.status).toBe(403);
       const body = await response.json();
       expect(body.error).toContain('System prompt not in allowlist');
-      
+
       // Extract the prompt from error message
       const promptMatch = body.error.match(/System prompt not in allowlist: (.+)/);
       expect(promptMatch).toBeTruthy();
       const truncatedPrompt = promptMatch![1];
-      
+
       // Should be truncated to max 100 chars + '...'
       expect(truncatedPrompt.length).toBeLessThanOrEqual(103); // 100 chars + '...'
       expect(truncatedPrompt).toContain('...');
@@ -571,13 +554,14 @@ describe('SamplingBridgeServer', () => {
     it('should_return400_when_invalidModel', async () => {
       const bridge = new SamplingBridgeServer(mockMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 10,
         maxTokensPerExecution: 10000,
         timeoutPerCallMs: 30000,
         allowedSystemPrompts: [''],
         contentFilteringEnabled: false,
         allowedModels: ['claude-3-5-haiku-20241022'] // Only allow specific model
-      }, undefined, mockAnthropic);
+      }, new MockProvider());
       const serverInfo = await bridge.start();
 
       const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
@@ -641,17 +625,20 @@ describe('SamplingBridgeServer', () => {
       await bridge.stop();
     });
 
-    it('should_return400_when_streamingWithoutAnthropicKey', async () => {
-      // Create bridge without Anthropic client (MCP-only mode)
-      const bridge = new SamplingBridgeServer(mockMcpServer as any, {
+    it('should_return503_when_streamingWithoutProvider', async () => {
+      // Create bridge without Provider (MCP-only mode) - use a mock without request method
+      const noMcpServer = {}; // No request OR createMessage methods - pure direct mode
+
+      const bridge = new SamplingBridgeServer(noMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 10,
         maxTokensPerExecution: 10000,
         timeoutPerCallMs: 30000,
         allowedSystemPrompts: [''],
         contentFilteringEnabled: false,
         allowedModels: ['claude-3-5-haiku-20241022']
-      }); // No Anthropic client provided
+      }); // No Provider provided
       const serverInfo = await bridge.start();
 
       const response = await fetch(`http://localhost:${serverInfo.port}/sample`, {
@@ -666,8 +653,10 @@ describe('SamplingBridgeServer', () => {
         })
       });
 
-      // Should succeed with MCP SDK fallback (no error expected)
-      expect(response.status).toBe(200);
+      // Should fail because streaming requires direct provider and we have none
+      expect(response.status).toBe(503);
+      const body = await response.json();
+      expect(body.error).toContain('Streaming requires');
 
       await bridge.stop();
     });
@@ -678,15 +667,19 @@ describe('SamplingBridgeServer', () => {
         request: vi.fn().mockRejectedValue(new Error('MCP sampling unavailable'))
       };
 
+      const mockProvider = new MockProvider();
+      const generateSpy = vi.spyOn(mockProvider, 'generateMessage');
+
       const bridge = new SamplingBridgeServer(failingMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 10,
         maxTokensPerExecution: 10000,
         timeoutPerCallMs: 30000,
         allowedSystemPrompts: [''],
         contentFilteringEnabled: false,
         allowedModels: ['claude-3-5-haiku-20241022']
-      }, undefined, mockAnthropic); // Provide Anthropic client for fallback
+      }, mockProvider); // Provide Provider for fallback
 
       const serverInfo = await bridge.start();
 
@@ -704,7 +697,7 @@ describe('SamplingBridgeServer', () => {
 
       // Should succeed using fallback Direct API
       expect(response.status).toBe(200);
-      expect(mockAnthropic.messages.create).toHaveBeenCalled();
+      expect(generateSpy).toHaveBeenCalled();
 
       await bridge.stop();
     });
@@ -715,22 +708,19 @@ describe('SamplingBridgeServer', () => {
         request: vi.fn().mockRejectedValue(new Error('MCP sampling unavailable'))
       };
 
-      // Create mock Anthropic client that fails
-      const failingAnthropic = {
-        messages: {
-          create: vi.fn().mockRejectedValue(new Error('Anthropic API error'))
-        }
-      } as unknown as Anthropic;
+      // Create mock Provider that fails
+      const failingProvider = new MockProvider(true); // shouldFail = true
 
       const bridge = new SamplingBridgeServer(failingMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 10,
         maxTokensPerExecution: 10000,
         timeoutPerCallMs: 30000,
         allowedSystemPrompts: [''],
         contentFilteringEnabled: false,
         allowedModels: ['claude-3-5-haiku-20241022']
-      }, undefined, failingAnthropic);
+      }, failingProvider);
 
       const serverInfo = await bridge.start();
 
@@ -754,19 +744,20 @@ describe('SamplingBridgeServer', () => {
       await bridge.stop();
     });
 
-    it('should_handleMissingAnthropicClient_when_directModeRequired', async () => {
+    it('should_handleMissingProvider_when_directModeRequired', async () => {
       // Create bridge without MCP SDK (no request method)
       const noMcpServer = {}; // No request method
 
       const bridge = new SamplingBridgeServer(noMcpServer as any, {
         enabled: true,
+        provider: 'anthropic',
         maxRoundsPerExecution: 10,
         maxTokensPerExecution: 10000,
         timeoutPerCallMs: 30000,
         allowedSystemPrompts: [''],
         contentFilteringEnabled: false,
         allowedModels: ['claude-3-5-haiku-20241022']
-      }); // No Anthropic client provided
+      }); // No Provider provided
 
       const serverInfo = await bridge.start();
 
@@ -782,7 +773,7 @@ describe('SamplingBridgeServer', () => {
         })
       });
 
-      // Should return error when Anthropic client missing in direct mode
+      // Should return error when Provider missing in direct mode
       expect(response.status).toBe(503);
       const body = await response.json();
       expect(body.error).toBeTruthy();
@@ -790,6 +781,4 @@ describe('SamplingBridgeServer', () => {
       await bridge.stop();
     });
   });
-
-  // Additional test stubs will be added as implementation progresses
 });

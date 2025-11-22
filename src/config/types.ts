@@ -110,6 +110,18 @@ export type ExecutorsConfig = z.infer<typeof ExecutorsConfigSchema>;
 export const SamplingConfigSchema = z.object({
   /** Enable sampling support (default: false for security) */
   enabled: z.boolean().default(false),
+  /** AI Provider to use (default: anthropic) */
+  provider: z.enum(['anthropic', 'openai', 'gemini', 'grok', 'perplexity']).default('anthropic'),
+  /** API Keys for providers (optional - sampling disabled if missing) */
+  apiKeys: z.object({
+    anthropic: z.string().optional(),
+    openai: z.string().optional(),
+    gemini: z.string().optional(),
+    grok: z.string().optional(),
+    perplexity: z.string().optional(),
+  }).optional(),
+  /** Custom base URL for OpenAI-compatible providers */
+  baseUrl: z.string().url().optional(),
   /** Maximum sampling rounds per execution (default: 10, range: 1-100) */
   maxRoundsPerExecution: z.number().int().min(1).max(100).default(10),
   /** Maximum tokens per execution (default: 10000, range: 100-100000) */
@@ -122,6 +134,15 @@ export const SamplingConfigSchema = z.object({
     .default(['', 'You are a helpful assistant', 'You are a code analysis expert']),
   /** Enable content filtering for secrets/PII (default: true for security) */
   contentFilteringEnabled: z.boolean().default(true),
+  /** Allowlist of permitted LLM models for security (January 2025 - updated with latest cost-effective models) */
+  allowedModels: z.array(z.string()).default([
+    'claude-haiku-4-5-20251001',
+    'claude-sonnet-4-5-20250929',
+    'gpt-4o-mini',
+    'gemini-2.5-flash-lite',
+    'grok-4-1-fast-non-reasoning',
+    'sonar'
+  ]),
 });
 
 export type SamplingConfig = z.infer<typeof SamplingConfigSchema>;

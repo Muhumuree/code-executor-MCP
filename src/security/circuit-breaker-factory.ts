@@ -29,7 +29,7 @@ import type {
   ICircuitBreaker,
   CircuitBreakerState,
   CircuitBreakerStats,
-} from './interfaces/circuit-breaker.js';
+} from './circuit-breaker.js';
 
 export interface CircuitBreakerConfig {
   /** Number of consecutive failures before opening circuit */

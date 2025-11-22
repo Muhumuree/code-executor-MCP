@@ -3,8 +3,8 @@
  */
 
 import * as crypto from 'crypto';
-import { CHARACTER_LIMIT } from './config.js';
-import type { ErrorResponse, ErrorType, ExecutionResult } from './types.js';
+import { CHARACTER_LIMIT } from '../config/loader.js';
+import type { ErrorResponse, ErrorType, ExecutionResult } from '../types.js';
 
 /**
  * Truncate text to character limit with clear indicator

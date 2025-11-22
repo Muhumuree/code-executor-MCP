@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { isAllowedPath } from '../utils.js';
+import { isAllowedPath } from './utils.js';
 
 /**
  * File system service for CLI operations with security controls.

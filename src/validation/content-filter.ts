@@ -1,4 +1,4 @@
-import type { IContentFilter } from './content-filter-interface.js';
+import type { IContentFilter } from '../types/content-filter-interface.js';
 
 /**
  * Content Filter for MCP Sampling

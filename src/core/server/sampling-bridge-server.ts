@@ -1,14 +1,14 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import crypto from 'crypto';
-import Anthropic from '@anthropic-ai/sdk';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import AsyncLock from 'async-lock';
 import { Ajv } from 'ajv';
 import type { ValidateFunction, ErrorObject } from 'ajv';
-import { getAnthropicApiKey } from './config.js';
-import type { SamplingConfig, SamplingCall, SamplingMetrics, LLMMessage, LLMResponse } from './types.js';
-import { ContentFilter } from './security/content-filter.js';
-import { RateLimiter } from './security/rate-limiter.js';
+import type { SamplingConfig, SamplingCall, SamplingMetrics, LLMMessage, LLMResponse } from '../../types.js';
+import type { LLMProvider } from '../../sampling/providers/types.js';
+import { ProviderFactory } from '../../sampling/providers/factory.js';
+import { ContentFilter } from '../../validation/content-filter.js';
+import { RateLimiter } from '../../security/rate-limiter.js';
 
 /**
  * Bridge Server Constants
@@ -176,7 +176,7 @@ export class SamplingBridgeServer {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private mcpServer: Server | any;
-  private anthropic: Anthropic | null = null;
+  private provider: LLMProvider | null = null;
   private config: SamplingConfig;
   private contentFilter: ContentFilter;
   private samplingMode: 'mcp' | 'direct' = 'direct';
@@ -196,57 +196,44 @@ export class SamplingBridgeServer {
    * Constructor for SamplingBridgeServer
    *
    * @param mcpServer - MCP server instance (can be mock for testing)
-   * @param configOrAnthropic - Either SamplingConfig object or Anthropic client (for backward compatibility)
-   * @param config - SamplingConfig object (if second param is Anthropic)
-   * @param anthropicClient - Optional Anthropic client (for testing/mocking)
+   * @param config - SamplingConfig object
+   * @param provider - Optional LLMProvider (for testing/mocking)
    */
   constructor(
     mcpServer: Server | any,
-    configOrAnthropic?: SamplingConfig | Anthropic,
     config?: SamplingConfig,
-    anthropicClient?: Anthropic
+    provider?: LLMProvider
   ) {
     this.mcpServer = mcpServer;
 
-    // Handle different constructor signatures for backward compatibility and testing
-    if (config) {
-      // Old signature: (mcpServer, anthropic, config)
-      this.config = config;
-      this.anthropic = configOrAnthropic as Anthropic;
-    } else if (configOrAnthropic && 'enabled' in configOrAnthropic) {
-      // New signature: (mcpServer, config, anthropicClient?) - for testing
-      this.config = configOrAnthropic as SamplingConfig;
-      if (anthropicClient) {
-        this.anthropic = anthropicClient;
-      }
-    } else {
-      // Default config if none provided
-      this.config = {
-        enabled: true,
-        maxRoundsPerExecution: 10,
-        maxTokensPerExecution: 10000,
-        timeoutPerCallMs: 30000,
-        allowedSystemPrompts: ['', 'You are a helpful assistant', 'You are a code analysis expert'],
-        contentFilteringEnabled: true,
-        allowedModels: ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022']
-      };
-      if (anthropicClient) {
-        this.anthropic = anthropicClient;
-      }
+    // Default config if none provided
+    this.config = config || {
+      enabled: true,
+      provider: 'anthropic',
+      maxRoundsPerExecution: 10,
+      maxTokensPerExecution: 10000,
+      timeoutPerCallMs: 30000,
+      allowedSystemPrompts: ['', 'You are a helpful assistant', 'You are a code analysis expert'],
+      contentFilteringEnabled: true,
+      allowedModels: ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022']
+    };
+
+    if (provider) {
+      this.provider = provider;
     }
 
-    // HYBRID SAMPLING: Detect which mode to use (MCP SDK or direct Anthropic API)
+    // HYBRID SAMPLING: Detect which mode to use (MCP SDK or direct Provider API)
     this.samplingMode = this.detectSamplingMode();
 
-    // Only require/create Anthropic client if in direct mode and not already provided
-    if (this.samplingMode === 'direct' && !this.anthropic) {
-      const apiKey = getAnthropicApiKey();
-      if (apiKey) {
-        this.anthropic = new Anthropic({ apiKey });
-        console.log('[Sampling] Using direct Anthropic API (ANTHROPIC_API_KEY provided)');
+    // Only create provider if in direct mode and not already provided
+    if (this.samplingMode === 'direct' && !this.provider) {
+      this.provider = ProviderFactory.createProvider(this.config);
+
+      if (this.provider) {
+        console.log(`[Sampling] Using direct ${this.config.provider} API`);
       } else {
         console.warn(
-          '[Sampling] WARNING: No MCP sampling available and ANTHROPIC_API_KEY not set. ' +
+          `[Sampling] WARNING: No MCP sampling available and ${this.config.provider} API key not set. ` +
           'Sampling will fail unless API key is provided later.'
         );
       }
@@ -265,24 +252,23 @@ export class SamplingBridgeServer {
   }
 
   /**
-   * Detect which sampling mode to use (MCP SDK vs direct Anthropic API)
+   * Detect which sampling mode to use (MCP SDK vs direct Provider API)
    *
    * Detection logic:
    * 1. Check if mcpServer has createMessage method (MCP SDK sampling capability)
    * 2. If yes → try MCP sampling first
-   * 3. If no → use direct Anthropic API
+   * 3. If no → use direct Provider API
    *
-   * @returns 'mcp' if MCP SDK detected, 'direct' for Anthropic API
+   * @returns 'mcp' if MCP SDK detected, 'direct' for Provider API
    */
   private detectSamplingMode(): 'mcp' | 'direct' {
     // Check if mcpServer has createMessage method (indicates MCP SDK sampling capability)
-    // Note: createMessage() is the proper API for LLM sampling in MCP SDK
     if (this.mcpServer && typeof this.mcpServer.createMessage === 'function') {
       console.log('[Sampling] MCP SDK detected - will attempt MCP sampling first (free via MCP client)');
       return 'mcp';
     }
 
-    console.log('[Sampling] No MCP SDK detected - will use direct Anthropic API (requires ANTHROPIC_API_KEY)');
+    console.log(`[Sampling] No MCP SDK detected - will use direct ${this.config.provider} API`);
     return 'direct';
   }
 
@@ -404,11 +390,6 @@ export class SamplingBridgeServer {
    * This uses the MCP SDK's sampling capability, which is free for users
    * running MCP-enabled clients (covered by their subscription).
    *
-   * NOTE: As of November 2025, Claude Code does NOT support MCP sampling (Issue #1785).
-   * Compatible clients: VS Code (v0.20.0+), GitHub Copilot.
-   * When Claude Code adds sampling, this will automatically work (no code changes needed).
-   *
-   * @see https://github.com/anthropics/claude-code/issues/1785
    * @returns LLMResponse or null if MCP sampling failed (triggers Direct API fallback)
    */
   private async callViaMCPSampling(
@@ -472,7 +453,7 @@ export class SamplingBridgeServer {
 
       // If MCP sampling fails, update mode and fall back to direct API
       if (this.samplingMode === 'mcp') {
-        console.warn('[Sampling] Falling back to direct Anthropic API for subsequent requests');
+        console.warn('[Sampling] Falling back to direct Provider API for subsequent requests');
         this.samplingMode = 'direct';
       }
 
@@ -481,59 +462,31 @@ export class SamplingBridgeServer {
   }
 
   /**
-   * Call Claude via direct Anthropic API
+   * Call LLM via direct Provider API
    *
    * This requires an API key and users pay per-token usage.
    *
    * @returns LLMResponse
-   * @throws Error if Anthropic client not configured or API call fails
+   * @throws Error if Provider not configured or API call fails
    */
-  private async callViaAnthropicAPI(
+  private async callViaProvider(
     messages: LLMMessage[],
     model: string,
     maxTokens: number,
     systemPrompt?: string
   ): Promise<LLMResponse> {
-    if (!this.anthropic) {
+    if (!this.provider) {
       throw new Error(
-        'Anthropic API not configured. Set ANTHROPIC_API_KEY environment variable ' +
-        'or pass Anthropic client to constructor.'
+        `${this.config.provider} API not configured. Set API key environment variable.`
       );
     }
 
-    // Convert messages to Anthropic format
-    const anthropicMessages = messages.map(msg => {
-      const content = typeof msg.content === 'string'
-        ? msg.content
-        : msg.content.filter(c => c.type === 'text').map(c => (c as { type: 'text'; text: string }).text).join('\n');
-
-      return {
-        role: msg.role === 'system' ? 'user' : msg.role,
-        content
-      };
-    });
-
-    const claudeResponse = await this.anthropic.messages.create({
+    return await this.provider.generateMessage(
+      messages,
+      systemPrompt,
       model,
-      max_tokens: maxTokens,
-      messages: anthropicMessages,
-      ...(systemPrompt && { system: systemPrompt }),
-    });
-
-    return {
-      content: claudeResponse.content.map(item => {
-        if (item.type === 'text') {
-          return { type: 'text', text: item.text };
-        }
-        return { type: 'text', text: JSON.stringify(item) };
-      }),
-      stopReason: claudeResponse.stop_reason || undefined,
-      model: claudeResponse.model,
-      usage: {
-        inputTokens: claudeResponse.usage.input_tokens,
-        outputTokens: claudeResponse.usage.output_tokens
-      }
-    };
+      maxTokens
+    );
   }
 
   /**
@@ -615,11 +568,20 @@ export class SamplingBridgeServer {
         return;
       }
 
-      // Call Claude API via Anthropic SDK
-      const model = body.model || 'claude-3-5-haiku-20241022';
+      // Call Provider API with provider-specific default models (January 2025 - most cost-effective)
+      const defaultModels: Record<string, string> = {
+        anthropic: 'claude-haiku-4-5-20251001',           // $1 input/$5 output per MTok - fastest Haiku
+        openai: 'gpt-4o-mini',                             // $0.15 input/$0.60 output per MTok - 17x cheaper than gpt-4o
+        gemini: 'gemini-2.5-flash-lite',                   // $0.10 input/$0.40 output per MTok - free tier available
+        grok: 'grok-4-1-fast-non-reasoning',               // $0.20 input/$0.50 output per MTok - 2M context
+        perplexity: 'sonar'                                // $1 input/$1 output per MTok - includes real-time search
+      };
+      const model = body.model || defaultModels[this.config.provider] || 'claude-haiku-4-5-20251001';
 
       // Validate model is in allowlist
-      if (!this.config.allowedModels.includes(model)) {
+      // TODO: Make allowedModels configurable per provider or generic
+      // For now, we skip strict model validation if provider is not Anthropic to allow flexibility
+      if (this.config.provider === 'anthropic' && !this.config.allowedModels.includes(model)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           error: `Model '${model}' not in allowlist. Allowed models: ${this.config.allowedModels.join(', ')}`
@@ -629,13 +591,19 @@ export class SamplingBridgeServer {
 
       const maxTokens = Math.min(body.maxTokens || DEFAULT_MAX_TOKENS_PER_REQUEST, MAX_TOKENS_PER_REQUEST_CAP); // Cap at 10k tokens
       const stream = body.stream === true; // Check if streaming is requested
-
-      // Convert MCP message format to Anthropic format
-      const anthropicMessages = this.convertMessagesToAnthropic(body.messages);
       const systemPrompt = body.systemPrompt;
 
       // Handle streaming response
       if (stream) {
+        // Early check: streaming requires a provider  
+        if (this.samplingMode === 'direct' && !this.provider) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: `Streaming requires ${this.config.provider} API key. Set API key environment variable.`
+          }));
+          return;
+        }
+
         try {
           // Set SSE headers for streaming
           res.writeHead(200, {
@@ -651,143 +619,136 @@ export class SamplingBridgeServer {
             await this.rateLimiter.incrementRounds();
           });
 
-          // HYBRID SAMPLING: Streaming only supported via direct Anthropic API
+          // HYBRID SAMPLING: Streaming only supported via direct Provider API
           // MCP SDK streaming support would be added in Phase 2
           if (this.samplingMode === 'mcp') {
             console.warn('[Sampling] Streaming requested but MCP mode active - falling back to direct API for streaming');
-            // If no Anthropic client available, return error
-            if (!this.anthropic) {
+            // If no Provider available, return error
+            if (!this.provider) {
               res.writeHead(503, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({
-                error: 'Streaming requires direct Anthropic API. Set ANTHROPIC_API_KEY or use non-streaming mode.'
+                error: `Streaming requires direct ${this.config.provider} API. Set API key or use non-streaming mode.`
               }));
               return;
             }
-          } else if (!this.anthropic) {
-            // Direct mode but no anthropic client
+          } else if (!this.provider) {
+            // Direct mode but no provider
             res.writeHead(503, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
-              error: 'Streaming requires Anthropic API key. Set ANTHROPIC_API_KEY environment variable.'
+              error: `Streaming requires ${this.config.provider} API key. Set API key environment variable.`
             }));
             return;
           }
 
-          // Create streaming request (requires direct Anthropic API)
-          const streamResponse = this.anthropic.messages.stream({
+          // Create streaming request
+          const streamGenerator = this.provider.streamMessage(
+            body.messages,
+            systemPrompt,
             model,
-            max_tokens: maxTokens,
-            messages: anthropicMessages,
-            ...(systemPrompt && { system: systemPrompt }),
-          });
+            maxTokens
+          );
 
           let fullText = '';
           let inputTokens = 0;
           let outputTokens = 0;
 
           // Stream chunks as they arrive
-          for await (const event of streamResponse) {
-            if (event.type === 'message_start') {
-              // Message started
-            } else if (event.type === 'content_block_delta') {
-              // Content chunk
-              if (event.delta.type === 'text_delta') {
-                const chunk = event.delta.text;
-                fullText += chunk;
-                
-                // Apply content filtering if enabled (per chunk)
-                let filteredChunk = chunk;
-                if (this.config.contentFilteringEnabled) {
-                  const { filtered } = this.contentFilter.scan(chunk);
-                  filteredChunk = filtered;
-                }
-                
-                // Send chunk to client (handle client disconnect gracefully)
-                try {
-                  res.write(`data: ${JSON.stringify({ type: 'chunk', content: filteredChunk })}\n\n`);
-                } catch (error) {
-                  // Client disconnected, stop streaming
-                  console.error('Client disconnected during stream:', error);
-                  return;
-                }
-              }
-            } else if (event.type === 'message_delta') {
-              // Usage information
-              if (event.usage) {
-                inputTokens = event.usage.input_tokens || inputTokens;
-                outputTokens = event.usage.output_tokens || outputTokens;
-              }
-            } else if (event.type === 'message_stop') {
-              // Message complete
-              const tokensUsed = inputTokens + outputTokens;
-              
-              // Check token limit after streaming completes
-              const tokenLimitCheck = await this.rateLimitLock.acquire('rate-limit-update', async () => {
-                const tokenCheck = await this.rateLimiter.checkTokenLimit(tokensUsed);
-              if (!tokenCheck.allowed) {
-                  return { exceeded: true, metrics: await this.getSamplingMetrics('current') };
-                }
-                await this.rateLimiter.incrementTokens(tokensUsed);
-                return { exceeded: false };
-              });
+          for await (const event of streamGenerator) {
+            if (event.type === 'chunk') {
+              const chunk = event.content;
+              fullText += chunk;
 
-              if (tokenLimitCheck.exceeded) {
-                // Decrement rounds since we're rejecting due to token limit
-                await this.rateLimitLock.acquire('rate-limit-update', async () => {
-                  // Rollback: await this.rateLimiter.incrementRounds(); // TODO: Add decrement method
-                });
-                
-                if (tokenLimitCheck.metrics) {
-                  try {
-                    res.write(`data: ${JSON.stringify({ error: `Token limit exceeded: ${tokenLimitCheck.metrics.totalTokens + tokensUsed}/${this.config.maxTokensPerExecution} tokens would be used` })}\n\n`);
-                    res.end();
-                  } catch (error) {
-                    console.error('Error sending token limit error:', error);
-                  }
-                }
+              // Apply content filtering if enabled (per chunk)
+              let filteredChunk = chunk;
+              if (this.config.contentFilteringEnabled) {
+                const { filtered } = this.contentFilter.scan(chunk);
+                filteredChunk = filtered;
+              }
+
+              // Send chunk to client (handle client disconnect gracefully)
+              try {
+                res.write(`data: ${JSON.stringify({ type: 'chunk', content: filteredChunk })}\n\n`);
+              } catch (error) {
+                // Client disconnected, stop streaming
+                console.error('Client disconnected during stream:', error);
                 return;
               }
-
-              // Create sampling call record
-              const callDuration = Date.now() - callStartTime;
-              const samplingCall: SamplingCall = {
-                model,
-                messages: body.messages,
-                systemPrompt: body.systemPrompt,
-                response: {
-                  content: [{ type: 'text', text: fullText }],
-                  stopReason: 'end_turn',
-                  model,
-                  usage: {
-                    inputTokens,
-                    outputTokens
-                  }
-                },
-                durationMs: callDuration,
-                tokensUsed,
-                timestamp: new Date().toISOString()
-              };
-
-              this.samplingCalls.push(samplingCall);
-
-              // Send completion event
-              try {
-                res.write(`data: ${JSON.stringify({ type: 'done', content: fullText, usage: { inputTokens, outputTokens } })}\n\n`);
-                res.end();
-              } catch (error) {
-                console.error('Error sending completion event:', error);
-              }
-              return;
+            } else if (event.type === 'usage') {
+              inputTokens = event.inputTokens || inputTokens;
+              outputTokens = event.outputTokens || outputTokens;
             }
           }
+
+          // Message complete
+          const tokensUsed = inputTokens + outputTokens;
+
+          // Check token limit after streaming completes
+          const tokenLimitCheck = await this.rateLimitLock.acquire('rate-limit-update', async () => {
+            const tokenCheck = await this.rateLimiter.checkTokenLimit(tokensUsed);
+            if (!tokenCheck.allowed) {
+              return { exceeded: true, metrics: await this.getSamplingMetrics('current') };
+            }
+            await this.rateLimiter.incrementTokens(tokensUsed);
+            return { exceeded: false };
+          });
+
+          if (tokenLimitCheck.exceeded) {
+            // Decrement rounds since we're rejecting due to token limit
+            await this.rateLimitLock.acquire('rate-limit-update', async () => {
+              await this.rateLimiter.decrementRounds();
+            });
+
+            if (tokenLimitCheck.metrics) {
+              try {
+                res.write(`data: ${JSON.stringify({ error: `Token limit exceeded: ${tokenLimitCheck.metrics.totalTokens + tokensUsed}/${this.config.maxTokensPerExecution} tokens would be used` })}\n\n`);
+                res.end();
+              } catch (error) {
+                console.error('Error sending token limit error:', error);
+              }
+            }
+            return;
+          }
+
+          // Create sampling call record
+          const callDuration = Date.now() - callStartTime;
+          const samplingCall: SamplingCall = {
+            model,
+            messages: body.messages,
+            systemPrompt: body.systemPrompt,
+            response: {
+              content: [{ type: 'text', text: fullText }],
+              stopReason: 'end_turn',
+              model,
+              usage: {
+                inputTokens,
+                outputTokens
+              }
+            },
+            durationMs: callDuration,
+            tokensUsed,
+            timestamp: new Date().toISOString()
+          };
+
+          this.samplingCalls.push(samplingCall);
+
+          // Send completion event
+          try {
+            res.write(`data: ${JSON.stringify({ type: 'done', content: fullText, usage: { inputTokens, outputTokens } })}\n\n`);
+            res.end();
+          } catch (error) {
+            console.error('Error sending completion event:', error);
+          }
+          return;
+
         } catch (error) {
-          console.error('Claude API streaming error:', error);
+          console.error('Streaming error:', error);
           // Decrement rounds since stream failed
           await this.rateLimitLock.acquire('rate-limit-update', async () => {
-            // Rollback: await this.rateLimiter.incrementRounds(); // TODO: Add decrement method
+            await this.rateLimiter.decrementRounds();
           });
-          
+
           try {
-            res.write(`data: ${JSON.stringify({ error: 'Claude API streaming error', details: error instanceof Error ? error.message : 'Unknown error' })}\n\n`);
+            res.write(`data: ${JSON.stringify({ error: 'Streaming error', details: error instanceof Error ? error.message : 'Unknown error' })}\n\n`);
             res.end();
           } catch (writeError) {
             console.error('Error sending streaming error:', writeError);
@@ -816,12 +777,12 @@ export class SamplingBridgeServer {
           console.log('[Sampling] MCP sampling succeeded (free via MCP client)');
         } else {
           // MCP failed, fall back to direct API
-          if (!this.anthropic) {
+          if (!this.provider) {
             const clientCaps = this.mcpServer.getClientCapabilities();
             res.writeHead(503, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
-              error: 'MCP sampling unavailable and no Anthropic API key configured. ' +
-                     'Set ANTHROPIC_API_KEY environment variable to use direct API.',
+              error: `MCP sampling unavailable and no ${this.config.provider} API key configured. ` +
+                'Set API key environment variable to use direct API.',
               debug: {
                 clientCapabilities: clientCaps,
                 mcpServerType: this.mcpServer.constructor.name,
@@ -832,9 +793,9 @@ export class SamplingBridgeServer {
             return;
           }
 
-          console.log('[Sampling] MCP failed, falling back to direct Anthropic API');
+          console.log('[Sampling] MCP failed, falling back to direct Provider API');
           try {
-            llmResponse = await this.callViaAnthropicAPI(
+            llmResponse = await this.callViaProvider(
               body.messages,
               model,
               maxTokens,
@@ -842,10 +803,10 @@ export class SamplingBridgeServer {
             );
             tokensUsed = (llmResponse.usage?.inputTokens || 0) + (llmResponse.usage?.outputTokens || 0);
           } catch (error) {
-            console.error('Claude API error:', error);
+            console.error('Provider API error:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
-              error: 'Claude API error',
+              error: 'Provider API error',
               details: error instanceof Error ? error.message : 'Unknown error'
             }));
             return;
@@ -853,28 +814,28 @@ export class SamplingBridgeServer {
         }
       } else {
         // Direct API mode
-        if (!this.anthropic) {
+        if (!this.provider) {
           res.writeHead(503, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
-            error: 'Anthropic API key required. Set ANTHROPIC_API_KEY environment variable.'
+            error: `${this.config.provider} API key required. Set API key environment variable.`
           }));
           return;
         }
 
         try {
-          llmResponse = await this.callViaAnthropicAPI(
+          llmResponse = await this.callViaProvider(
             body.messages,
             model,
             maxTokens,
             systemPrompt
           );
           tokensUsed = (llmResponse.usage?.inputTokens || 0) + (llmResponse.usage?.outputTokens || 0);
-          console.log('[Sampling] Direct Anthropic API call succeeded');
+          console.log('[Sampling] Direct Provider API call succeeded');
         } catch (error) {
-          console.error('Claude API error:', error);
+          console.error('Provider API error:', error);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
-            error: 'Claude API error',
+            error: 'Provider API error',
             details: error instanceof Error ? error.message : 'Unknown error'
           }));
           return;
@@ -888,7 +849,7 @@ export class SamplingBridgeServer {
       const tokenLimitCheck = await this.rateLimitLock.acquire('rate-limit-update', async () => {
         // Check if adding these tokens would exceed limit
         const tokenCheck = await this.rateLimiter.checkTokenLimit(tokensUsed);
-              if (!tokenCheck.allowed) {
+        if (!tokenCheck.allowed) {
           return { exceeded: true, metrics: await this.getSamplingMetrics('current') };
         }
         // Update counters
@@ -945,43 +906,13 @@ export class SamplingBridgeServer {
       console.error('Sampling request error:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        error: 'Claude API failure',
+        error: 'Sampling failure',
         details: error instanceof Error ? error.message : 'Unknown error'
       }));
     }
   }
 
-  /**
-   * Convert MCP message format to Anthropic message format
-   */
-  private convertMessagesToAnthropic(messages: LLMMessage[]): Anthropic.Messages.MessageParam[] {
-    return messages.map(msg => {
-      switch (msg.role) {
-        case 'user':
-          return {
-            role: 'user',
-            content: typeof msg.content === 'string' ? msg.content :
-              Array.isArray(msg.content) ? msg.content.map(c =>
-                c.type === 'text' ? { type: 'text', text: c.text } : c
-              ) : msg.content
-          };
-        case 'assistant':
-          return {
-            role: 'assistant',
-            content: typeof msg.content === 'string' ? msg.content :
-              Array.isArray(msg.content) ? msg.content.map(c =>
-                c.type === 'text' ? { type: 'text', text: c.text } : c
-              ) : msg.content
-          };
-        case 'system':
-          // System messages are handled separately in Anthropic API
-          // They should be filtered out here and passed as system parameter
-          throw new Error('System messages should be passed separately');
-        default:
-          throw new Error(`Unsupported message role: ${msg.role}`);
-      }
-    });
-  }
+
 
   /**
    * Read and validate request body with AJV
@@ -1051,7 +982,7 @@ export class SamplingBridgeServer {
       }
 
       // WHY Constant-time comparison: Prevents timing attacks that could leak token information
-    return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+      return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
     } catch {
       return false;
     }

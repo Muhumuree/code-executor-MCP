@@ -8,12 +8,12 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as crypto from 'crypto';
-import { getPythonPath } from './config.js';
-import { sanitizeOutput, truncateOutput, formatDuration, normalizeError } from './utils.js';
-import { MCPProxyServer } from './mcp-proxy-server.js';
-import { StreamingProxy } from './streaming-proxy.js';
-import type { ExecutionResult, SandboxOptions } from './types.js';
-import type { MCPClientPool } from './mcp-client-pool.js';
+import { getPythonPath } from '../config/loader.js';
+import { sanitizeOutput, truncateOutput, formatDuration, normalizeError } from '../utils/utils.js';
+import { MCPProxyServer } from '../core/server/mcp-proxy-server.js';
+import { StreamingProxy } from '../core/middleware/streaming-proxy.js';
+import type { ExecutionResult, SandboxOptions } from '../types.js';
+import type { MCPClientPool } from '../mcp/client-pool.js';
 
 /**
  * Python wrapper template for call_mcp_tool() injection
