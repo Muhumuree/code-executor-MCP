@@ -14,6 +14,7 @@
     "start": "node dist/index.js",
     "server": "npm run build && node dist/index.js",
     "generate-wrappers": "npm run build && node dist/wrapper-generator.js",
+    "sync-wrappers": "node dist/cli/sync-wrappers-cli.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",

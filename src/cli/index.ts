@@ -11,6 +11,7 @@ import { ToolDetector } from './tool-detector.js';
 import { WrapperGenerator } from './wrapper-generator.js';
 import { SelfInstaller } from './self-installer.js';
 import { MCPDiscoveryService } from './mcp-discovery.js';
+import { PlatformSchedulerFactory } from './platform-scheduler.js';
 import type { MCPServerConfig } from './types.js';
 import path from 'path';
 import os from 'os';
@@ -267,9 +268,45 @@ async function main(): Promise<void> {
       const dailySyncConfig = await wizard.askDailySyncConfig();
 
       if (dailySyncConfig) {
-        console.log(
-          wizard.formatMessage('success', `Scheduled for ${dailySyncConfig.syncTime}`)
-        );
+        try {
+          // Check if platform is supported
+          const currentPlatform = PlatformSchedulerFactory.getCurrentPlatform();
+          if (!PlatformSchedulerFactory.isSupported(currentPlatform)) {
+            console.log(
+              wizard.formatMessage('warning',
+                `Daily sync scheduling not supported on ${currentPlatform}. ` +
+                `Supported platforms: ${PlatformSchedulerFactory.getSupportedPlatforms().join(', ')}`
+              )
+            );
+          } else {
+            // Create platform-specific scheduler
+            const scheduler = PlatformSchedulerFactory.create();
+
+            // Determine script path based on global vs local installation
+            // Global: use npx code-executor-mcp sync-wrappers
+            // Local: use npm run sync-wrappers
+            const scriptPath = process.env.npm_config_global === 'true'
+              ? 'npx code-executor-mcp sync-wrappers'
+              : 'npm run sync-wrappers';
+
+            console.log(wizard.formatMessage('info', 'Installing daily sync timer...'));
+
+            // Install the scheduler (creates systemd timer, launchd plist, or Windows task)
+            await scheduler.install(scriptPath, dailySyncConfig.syncTime);
+
+            console.log(
+              wizard.formatMessage('success', `Daily sync scheduled for ${dailySyncConfig.syncTime}`)
+            );
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.log(
+            wizard.formatMessage('error', `Failed to install scheduler: ${errorMsg}`)
+          );
+          console.log(
+            wizard.formatMessage('info', 'You can manually run: npx code-executor-mcp sync-wrappers')
+          );
+        }
       }
 
       // Step 14: Show completion

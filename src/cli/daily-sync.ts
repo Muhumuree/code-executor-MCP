@@ -19,8 +19,11 @@
 import { promises as fs } from 'fs';
 import { createHash } from 'crypto';
 import * as path from 'path';
-import type { WrapperManifest, WrapperEntry } from './types.js';
+import type { WrapperManifest, WrapperEntry, MCPServerSelection, ToolSchema as CLIToolSchema } from './types.js';
 import { WrapperGenerator } from './wrapper-generator.js';
+import type { MCPClientPool } from '../mcp/client-pool.js';
+import type { SchemaCache } from '../validation/schema-cache.js';
+import type { ToolSchema as DiscoveryToolSchema } from '../types/discovery.js';
 
 /**
  * DailySyncOptions - Configuration for daily sync service
@@ -51,6 +54,30 @@ export interface DailySyncOptions {
    * **CONTENTS:** typescript-wrapper.hbs, python-wrapper.hbs
    */
   templateDir: string;
+
+  /**
+   * MCP Client Pool for fetching current tool schemas
+   *
+   * **REQUIRED:** Phase 10 implementation
+   * **USAGE:** Used in computeCurrentSchemaHash() to fetch tool schemas
+   */
+  mcpClientPool: MCPClientPool;
+
+  /**
+   * Schema Cache for caching tool schemas
+   *
+   * **REQUIRED:** Phase 10 implementation
+   * **USAGE:** Used in listAllToolSchemas() for performance
+   */
+  schemaCache: SchemaCache;
+
+  /**
+   * Wrapper Generator for regenerating wrappers
+   *
+   * **OPTIONAL:** If not provided, will be created internally
+   * **USAGE:** Used in regenerateWrapper() to generate wrapper files
+   */
+  wrapperGenerator?: WrapperGenerator;
 }
 
 /**
@@ -105,6 +132,8 @@ export interface DailySyncResult {
 export class DailySyncService {
   private manifestPath: string;
   private wrapperGenerator: WrapperGenerator;
+  private mcpClientPool: MCPClientPool;
+  private schemaCache: SchemaCache;
 
   /**
    * Constructor
@@ -115,14 +144,15 @@ export class DailySyncService {
    * - templateDir must be absolute (security: prevent path traversal)
    *
    * **DEPENDENCY INJECTION:**
-   * - wrapperGenerator can be injected for testing (mocking)
-   * - If not provided, creates default WrapperGenerator instance
+   * - mcpClientPool: Required for fetching current MCP tool schemas (Phase 10)
+   * - schemaCache: Required for caching tool schemas (Phase 10)
+   * - wrapperGenerator: Optional, can be injected via options for testing (mocking)
+   *   If not provided, creates default WrapperGenerator instance
    *
    * @param options Daily sync configuration
-   * @param wrapperGenerator Optional WrapperGenerator instance (DI for testing)
    * @throws Error if paths are not absolute
    */
-  constructor(options: DailySyncOptions, wrapperGenerator?: WrapperGenerator) {
+  constructor(options: DailySyncOptions) {
     // Validation: all paths must be absolute (security)
     if (!path.isAbsolute(options.manifestPath)) {
       throw new Error('manifestPath must be absolute');
@@ -135,9 +165,11 @@ export class DailySyncService {
     }
 
     this.manifestPath = options.manifestPath;
+    this.mcpClientPool = options.mcpClientPool;
+    this.schemaCache = options.schemaCache;
 
-    // Dependency Injection: use provided generator or create default
-    this.wrapperGenerator = wrapperGenerator ?? new WrapperGenerator({
+    // Dependency Injection: use provided generator from options or create default
+    this.wrapperGenerator = options.wrapperGenerator ?? new WrapperGenerator({
       outputDir: options.wrapperOutputDir,
       templateDir: options.templateDir,
       manifestPath: options.manifestPath,
@@ -310,31 +342,95 @@ export class DailySyncService {
   }
 
   /**
+   * Convert DiscoveryToolSchema to CLIToolSchema
+   *
+   * **WHY:** Discovery types use JSONSchema7 which is more flexible than CLI types
+   * **BEHAVIOR:** Safely converts parameters field to expected CLI format
+   *
+   * @param discoveryTool Tool schema from MCPClientPool discovery
+   * @returns CLIToolSchema Tool schema compatible with WrapperGenerator
+   */
+  private convertToCLIToolSchema(discoveryTool: DiscoveryToolSchema): CLIToolSchema {
+    // Extract parameters as object, defaulting to empty if not present
+    const params = discoveryTool.parameters || {};
+
+    // Type guard: Check if params has properties and required fields
+    const hasProperties = typeof params === 'object' && params !== null && 'properties' in params;
+    const hasRequired = typeof params === 'object' && params !== null && 'required' in params;
+
+    // Ensure parameters conform to CLI expectations
+    const cliParameters = {
+      type: 'object' as const,
+      properties: (hasProperties && typeof params.properties === 'object' && params.properties !== null)
+        ? params.properties as Record<string, unknown>
+        : {},
+      required: (hasRequired && Array.isArray(params.required))
+        ? params.required as string[]
+        : [],
+    };
+
+    return {
+      name: discoveryTool.name,
+      description: discoveryTool.description,
+      parameters: cliParameters,
+    };
+  }
+
+  /**
    * Compute current schema hash for an MCP server
    *
    * **ALGORITHM:**
-   * 1. Fetch current MCP tool schemas (via MCP Client Pool or discovery)
-   * 2. Normalize schemas (sort keys, remove timestamps)
-   * 3. Compute SHA-256 hash of normalized schemas
+   * 1. Fetch current MCP tool schemas (via MCPClientPool.listAllToolSchemas())
+   * 2. Filter tools by MCP server name
+   * 3. Sort tools by name (deterministic order)
+   * 4. Normalize and stringify (sorted keys)
+   * 5. Compute SHA-256 hash
    *
-   * **IMPLEMENTATION NOTE (Phase 9 MVP stub):**
-   * - Current: Returns deterministic stub hash (testing only)
-   * - Phase 10 TODO (#70): Integrate with MCPClientPool.discoverMCPTools()
-   * - Algorithm:
-   *   1. Call discoverMCPTools({ search: [mcpName] })
-   *   2. Extract tools array, sort by name (deterministic order)
-   *   3. JSON.stringify with sorted keys
-   *   4. Compute SHA-256 hash
-   * - Migration: Replace stub when Phase 8 (wrapper-generator) completes
+   * **IMPLEMENTATION (Phase 10):**
+   * - Fetches all tool schemas from MCP Client Pool
+   * - Filters by MCP server name (e.g., 'filesystem', 'github')
+   * - Sorts tools by name for deterministic hashing
+   * - Uses JSON.stringify with replacer for sorted keys
+   * - Computes SHA-256 hash of normalized JSON
    *
    * @param mcpName MCP server name (e.g., 'filesystem', 'github')
    * @returns Promise<string> SHA-256 hash of current schemas (hex string)
    */
   private async computeCurrentSchemaHash(mcpName: string): Promise<string> {
-    // TODO (#70): Implement full schema fetching and hashing (see implementation note above)
-    // For now, return a deterministic hash based on MCP name (stub)
+    // Step 1: Fetch all tool schemas from MCP Client Pool
+    const allTools = await this.mcpClientPool.listAllToolSchemas(this.schemaCache);
+
+    // Step 2: Filter tools by MCP server name
+    // Tool names are in format: mcp__servername__toolname
+    const serverTools = allTools.filter((tool) => {
+      const parts = tool.name.split('__');
+      return parts.length === 3 && parts[1] === mcpName;
+    });
+
+    // Step 3: Sort tools by name (deterministic order)
+    const sortedTools = serverTools.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Step 4: Normalize and stringify with sorted keys
+    // Use JSON.stringify with replacer to ensure consistent key order
+    const normalizedJson = JSON.stringify(
+      sortedTools,
+      (key, value) => {
+        // Sort object keys alphabetically for deterministic output
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          return Object.keys(value)
+            .sort()
+            .reduce((sorted, k) => {
+              sorted[k] = value[k];
+              return sorted;
+            }, {} as Record<string, unknown>);
+        }
+        return value;
+      }
+    );
+
+    // Step 5: Compute SHA-256 hash
     const hash = createHash('sha256');
-    hash.update(`${mcpName}-stub-hash`);
+    hash.update(normalizedJson);
     return hash.digest('hex');
   }
 
@@ -342,26 +438,61 @@ export class DailySyncService {
    * Regenerate wrapper for a wrapper entry
    *
    * **BEHAVIOR:**
-   * 1. Extract MCP server config from wrapper entry
-   * 2. Call WrapperGenerator.generateWrapper() with current config
-   * 3. Return true if generation succeeds, false otherwise
+   * 1. Fetch current tool schemas for the MCP server
+   * 2. Reconstruct MCPServerSelection from wrapper entry
+   * 3. Call WrapperGenerator.generateWrapper() with current config
+   * 4. Return true if generation succeeds, false otherwise
    *
-   * **IMPLEMENTATION NOTE (Phase 9 MVP stub):**
-   * - Current: Always returns true (testing only)
-   * - Phase 10 TODO (#70): Reconstruct MCPServerSelection from wrapper entry
-   * - Algorithm:
-   *   1. Extract mcpName, language from wrapper entry
-   *   2. Construct MCPServerSelection object (needs MCP config lookup)
-   *   3. Call this.wrapperGenerator.generateWrapper(mcpSelection, language, moduleFormat)
-   *   4. Return result.success
-   * - Migration: Replace stub when Phase 8 (wrapper-generator) completes
+   * **IMPLEMENTATION (Phase 10):**
+   * - Fetches tool schemas from MCPClientPool
+   * - Constructs minimal MCPServerSelection for regeneration
+   * - Calls WrapperGenerator with 'force' regeneration option
+   * - Returns result.success status
    *
    * @param wrapper Wrapper entry from manifest
    * @returns Promise<boolean> true if regeneration succeeded, false otherwise
    */
-  private async regenerateWrapper(_wrapper: WrapperEntry): Promise<boolean> {
-    // TODO (#70): Implement full wrapper regeneration (see implementation note above)
-    // For now, return success (stub)
-    return true;
+  private async regenerateWrapper(wrapper: WrapperEntry): Promise<boolean> {
+    try {
+      // Step 1: Fetch current tool schemas for this MCP server
+      const allTools = await this.mcpClientPool.listAllToolSchemas(this.schemaCache);
+
+      // Filter tools by MCP server name (same logic as computeCurrentSchemaHash)
+      const serverTools = allTools.filter((tool) => {
+        const parts = tool.name.split('__');
+        return parts.length === 3 && parts[1] === wrapper.mcpName;
+      });
+
+      // Convert discovery tool schemas to CLI tool schemas
+      const cliTools = serverTools.map((tool) => this.convertToCLIToolSchema(tool));
+
+      // Step 2: Reconstruct MCPServerSelection from wrapper entry
+      // Use minimal required fields for regeneration
+      const mcpSelection: MCPServerSelection = {
+        name: wrapper.mcpName,
+        description: `MCP server: ${wrapper.mcpName}`,
+        type: 'STDIO', // Default type (doesn't affect wrapper generation)
+        status: 'online', // Assume online since we fetched schemas successfully
+        toolCount: cliTools.length,
+        sourceConfig: wrapper.outputPath, // Use output path as reference
+        tools: cliTools,
+      };
+
+      // Step 3: Call WrapperGenerator with 'force' regeneration
+      // Module format: ESM (standard for TypeScript wrappers)
+      const result = await this.wrapperGenerator.generateWrapper(
+        mcpSelection,
+        wrapper.language,
+        'esm', // Default module format
+        'force' // Force regeneration (override existing file)
+      );
+
+      // Step 4: Return success status
+      return result.success;
+    } catch (error: unknown) {
+      // Log error and return false (partial failure pattern)
+      console.error(`Failed to regenerate wrapper for ${wrapper.mcpName} (${wrapper.language}):`, error);
+      return false;
+    }
   }
 }

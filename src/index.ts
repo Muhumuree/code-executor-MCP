@@ -259,9 +259,9 @@ Example:
           await this.securityValidator.validatePermissions(input.permissions);
 
           // Hybrid skip logic:
-          // 1. Execution parameter takes highest priority
-          // 2. Environment variable or config file (via shouldSkipDangerousPatternCheck())
-          const skipPatternCheck = input.skipDangerousPatternCheck ?? shouldSkipDangerousPatternCheck();
+          // 1. Config/Env variable ONLY (Issue #56 - Security Fix)
+          // User input is ignored to prevent security bypass
+          const skipPatternCheck = shouldSkipDangerousPatternCheck();
           const codeValidation = this.securityValidator.validateCode(input.code, skipPatternCheck);
 
           if (!codeValidation.valid) {
@@ -515,9 +515,9 @@ Example:
           await this.securityValidator.validatePermissions(input.permissions);
 
           // Hybrid skip logic:
-          // 1. Execution parameter takes highest priority
-          // 2. Environment variable or config file (via shouldSkipDangerousPatternCheck())
-          const skipPatternCheck = input.skipDangerousPatternCheck ?? shouldSkipDangerousPatternCheck();
+          // 1. Config/Env variable ONLY (Issue #56 - Security Fix)
+          // User input is ignored to prevent security bypass
+          const skipPatternCheck = shouldSkipDangerousPatternCheck();
           const codeValidation = this.securityValidator.validateCode(input.code, skipPatternCheck);
 
           if (!codeValidation.valid) {
@@ -821,11 +821,11 @@ const handleShutdownSignal = async (signal: string) => {
 process.on('SIGINT', () => void handleShutdownSignal('SIGINT'));
 process.on('SIGTERM', () => void handleShutdownSignal('SIGTERM'));
 
-// Argument parsing: Handle 'setup' command
+// Argument parsing: Handle CLI commands
 const args = process.argv.slice(2);
-const isSetupCommand = args[0] === 'setup';
+const command = args[0];
 
-if (isSetupCommand) {
+if (command === 'setup') {
   // Run setup wizard instead of starting server
   console.error('🚀 Launching setup wizard...\n');
 
@@ -836,6 +836,19 @@ if (isSetupCommand) {
     })
     .catch((error) => {
       console.error('❌ Setup wizard failed:', error);
+      process.exit(1);
+    });
+} else if (command === 'sync-wrappers') {
+  // Run daily sync service
+  console.error('🔄 Running wrapper sync...\n');
+
+  // Dynamically import and run the sync CLI
+  import('./cli/sync-wrappers-cli.js')
+    .then(() => {
+      // Sync CLI handles its own exit
+    })
+    .catch((error) => {
+      console.error('❌ Wrapper sync failed:', error);
       process.exit(1);
     });
 } else {
