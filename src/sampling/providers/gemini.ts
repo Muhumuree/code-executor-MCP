@@ -35,33 +35,40 @@ export class GeminiProvider implements LLMProvider {
         model: string,
         maxTokens: number
     ): Promise<LLMResponse> {
-        const genModel = this.client.getGenerativeModel({
-            model: model,
-            systemInstruction: systemPrompt
-        });
+        try {
+            const genModel = this.client.getGenerativeModel({
+                model: model,
+                systemInstruction: systemPrompt
+            });
 
-        const { history, lastUserMessage } = this.convertMessages(messages);
+            const { history, lastUserMessage } = this.convertMessages(messages);
 
-        const chat = genModel.startChat({
-            history,
-            generationConfig: {
-                maxOutputTokens: maxTokens,
-            },
-        });
+            const chat = genModel.startChat({
+                history,
+                generationConfig: {
+                    maxOutputTokens: maxTokens,
+                },
+            });
 
-        const result = await chat.sendMessage(lastUserMessage);
-        const response = await result.response;
-        const usage = response.usageMetadata;
+            const result = await chat.sendMessage(lastUserMessage);
+            const response = await result.response;
+            const usage = response.usageMetadata;
 
-        return {
-            content: [{ type: 'text', text: response.text() }],
-            stopReason: response.candidates?.[0]?.finishReason,
-            model: model,
-            usage: {
-                inputTokens: usage?.promptTokenCount || 0,
-                outputTokens: usage?.candidatesTokenCount || 0,
-            },
-        };
+            return {
+                content: [{ type: 'text', text: response.text() }],
+                stopReason: response.candidates?.[0]?.finishReason,
+                model: model,
+                usage: {
+                    inputTokens: usage?.promptTokenCount || 0,
+                    outputTokens: usage?.candidatesTokenCount || 0,
+                },
+            };
+        } catch (error) {
+            console.error('[GeminiProvider] API Error:', error);
+            console.error('[GeminiProvider] Model:', model);
+            console.error('[GeminiProvider] Error details:', JSON.stringify(error, null, 2));
+            throw error;
+        }
     }
 
     async *streamMessage(

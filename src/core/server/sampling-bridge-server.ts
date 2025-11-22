@@ -225,12 +225,17 @@ export class SamplingBridgeServer {
     // HYBRID SAMPLING: Detect which mode to use (MCP SDK or direct Provider API)
     this.samplingMode = this.detectSamplingMode();
 
-    // Only create provider if in direct mode and not already provided
-    if (this.samplingMode === 'direct' && !this.provider) {
+    // ALWAYS create provider if not already provided (needed as fallback even in MCP mode)
+    // BUG FIX: Provider must be available for fallback when MCP sampling fails
+    if (!this.provider) {
       this.provider = ProviderFactory.createProvider(this.config);
 
       if (this.provider) {
-        console.log(`[Sampling] Using direct ${this.config.provider} API`);
+        if (this.samplingMode === 'direct') {
+          console.log(`[Sampling] Using direct ${this.config.provider} API`);
+        } else {
+          console.log(`[Sampling] ${this.config.provider} API available as fallback if MCP sampling fails`);
+        }
       } else {
         console.warn(
           `[Sampling] WARNING: No MCP sampling available and ${this.config.provider} API key not set. ` +

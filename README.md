@@ -518,6 +518,84 @@ const schema = await getToolSchema('mcp__filesystem__read_file');
 
 **Zero token cost** - discovery functions hidden from AI agent's tool list.
 
+### MCP Sampling: LLM-in-the-Loop Execution
+
+Enable AI to autonomously call other AIs inside sandboxed code for iterative problem-solving, multi-agent collaboration, and complex workflows.
+
+**Key Features:**
+- **Multi-Provider Support**: Anthropic, OpenAI, Gemini, Grok, Perplexity
+- **Hybrid Mode**: Free MCP sampling with automatic fallback to paid API
+- **Simple API**: `llm.ask(prompt)` and `llm.think(messages)` helpers
+- **Security**: Rate limiting, content filtering, localhost-only bridge
+
+**Setup:**
+
+```bash
+# 1. Create .env file
+cp .env.example .env
+
+# 2. Add API key
+echo "CODE_EXECUTOR_SAMPLING_ENABLED=true" >> .env
+echo "CODE_EXECUTOR_AI_PROVIDER=gemini" >> .env
+echo "GEMINI_API_KEY=your_key_here" >> .env
+
+# 3. Use wrapper script (loads .env before starting)
+# Update .mcp.json:
+{
+  "code-executor": {
+    "command": "/path/to/start-with-env.sh"
+  }
+}
+```
+
+See [`SAMPLING_SETUP.md`](./SAMPLING_SETUP.md) for complete setup guide.
+
+**Basic Usage:**
+
+```typescript
+// Simple question
+const answer = await llm.ask('What is 2+2?');
+console.log(answer); // "4"
+
+// Multi-turn reasoning
+const analysis = await llm.think([
+  { role: 'system', content: 'You are a code reviewer' },
+  { role: 'user', content: 'Review this code: ...' }
+]);
+```
+
+**Advanced Example - Multi-Agent Code Review:**
+
+5 AI agents collaborate to review, secure, refactor, test, and document code:
+
+```typescript
+// Agent 1: Code Reviewer
+const review = await llm.ask('Review this code and list 5 issues...');
+
+// Agent 2: Security Analyst
+const security = await llm.ask('Analyze for vulnerabilities...');
+
+// Agent 3: Refactoring Expert
+const refactored = await llm.ask('Refactor using ES6+...');
+
+// Agent 4: Test Generator
+const tests = await llm.ask('Generate 3 Vitest test cases...');
+
+// Agent 5: Documentation Writer
+const docs = await llm.ask('Write JSDoc comments...');
+```
+
+**Real-World Results:**
+- 5 AI agents, 10 seconds, ~2,600 tokens
+- Complete code transformation: review → secure → refactor → test → document
+- See [`examples/multi-agent-code-review.ts`](./examples/multi-agent-code-review.ts) for full working example
+
+**Use Cases:**
+- 🤖 Multi-agent systems (code review, planning, execution)
+- 🔄 Iterative refinement (generate → validate → improve loop)
+- 🧪 Autonomous testing (generate tests, run them, fix failures)
+- 📚 Auto-documentation (analyze code, write docs, validate examples)
+
 ### Multi-Action Workflows
 
 Complex automation in a single tool call:

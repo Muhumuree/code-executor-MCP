@@ -8,11 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+
+- **Hybrid Sampling Fallback** - Fixed provider initialization in MCP sampling mode
+  - **Description**: LLM provider was not initialized in MCP sampling mode, causing fallback failures
+  - **Root Cause**: Provider creation was conditionally skipped if `samplingMode` wasn't `'direct'`
+  - **Solution**: Constructor now unconditionally initializes the LLM provider in `SamplingBridgeServer`
+  - **Impact**: Enables hybrid MCP/direct sampling, allowing fallback to direct API when MCP sampling fails
+  - **File**: `src/core/server/sampling-bridge-server.ts:228-245`
+  - Fixes error: "MCP sampling unavailable and no gemini API key configured"
+
 - **MCP Sampling Detection** - Fixed sampling capability detection to use `createMessage()` method instead of `request()`
   - Root cause: Sampling bridge was checking for `request()` method, but MCP SDK uses `createMessage()` for LLM sampling
   - Updated detection in `sandbox-executor.ts`, `pyodide-executor.ts`, and `sampling-bridge-server.ts`
   - Fixes error: "Sampling enabled but no MCP server available and ANTHROPIC_API_KEY not set"
   - All 25 sampling bridge tests passing
+
+### Added
+
+- **Enhanced Error Logging** - Added detailed error logging to `GeminiProvider` for better debugging
+  - Logs API errors, model names, and full error details to console
+  - Helps diagnose API key issues, model availability, and quota limits
 
 ## [1.0.0] - 2025-01-20
 
