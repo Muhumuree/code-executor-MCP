@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ConnectionQueue } from '../src/connection-queue.js';
+import { ConnectionQueue } from '../src/mcp/connection-queue.js';
 import { EventEmitter } from 'events';
 
 describe('Queue Polling Race Condition Fix (SEC-001)', () => {

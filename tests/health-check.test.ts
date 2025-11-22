@@ -3,9 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { HealthCheckServer } from '../src/health-check.js';
+import { HealthCheckServer } from '../src/core/server/health-check.js';
 import { MCPClientPool } from '../src/mcp-client-pool.js';
-import { ConnectionPool } from '../src/connection-pool.js';
+import { ConnectionPool } from '../src/mcp/connection-pool.js';
 
 describe('HealthCheckServer', () => {
   let healthCheckServer: HealthCheckServer;

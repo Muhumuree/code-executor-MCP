@@ -17,8 +17,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { RedisCacheProvider } from '../src/redis-cache-provider.js';
-import type { ICacheProvider } from '../src/cache-provider.js';
+import { RedisCacheProvider } from '../src/caching/redis-cache-provider.js';
+import type { ICacheProvider } from '../src/caching/cache-provider.js';
 
 describe('RedisCacheProvider', () => {
   let provider: RedisCacheProvider<string, object>;

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { shouldSkipDangerousPatternCheck, initConfig } from '../src/config.js';
+import { shouldSkipDangerousPatternCheck, initConfig } from '../src/config/loader.js';
 
 describe('shouldSkipDangerousPatternCheck', () => {
   let originalEnv: NodeJS.ProcessEnv;

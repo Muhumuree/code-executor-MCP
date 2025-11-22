@@ -8,8 +8,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getPoolConfig } from '../src/config.js';
-import { PoolConfigSchema } from '../src/config-types.js';
+import { getPoolConfig } from '../src/config/loader.js';
+import { PoolConfigSchema } from '../src/config/types.js';
 
 describe('Pool Configuration Validation (SEC-002)', () => {
   // Store original env vars

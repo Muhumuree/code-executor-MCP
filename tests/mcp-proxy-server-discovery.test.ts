@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { MCPProxyServer } from '../src/mcp-proxy-server.js';
+import { MCPProxyServer } from '../src/core/server/mcp-proxy-server.js';
 import { MCPClientPool } from '../src/mcp-client-pool.js';
 import type { ToolSchema } from '../src/types/discovery.js';
 import * as http from 'http';

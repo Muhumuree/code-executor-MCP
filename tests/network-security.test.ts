@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { validateNetworkPermissions, isBlockedHost, validateUrl, extractHostname } from '../src/network-security.js';
+import { validateNetworkPermissions, isBlockedHost, validateUrl, extractHostname } from '../src/validation/network-security.js';
 
 describe('Network Security', () => {
   describe('validateNetworkPermissions', () => {

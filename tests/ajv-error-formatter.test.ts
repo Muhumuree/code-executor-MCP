@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AjvErrorFormatter } from '../src/ajv-error-formatter.js';
+import { AjvErrorFormatter } from '../src/validation/ajv-error-formatter.js';
 import type { ErrorObject } from 'ajv';
 
 describe('AjvErrorFormatter (US13: FR-12)', () => {

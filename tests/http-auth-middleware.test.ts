@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { HttpAuthMiddleware } from '../src/http-auth-middleware';
+import { HttpAuthMiddleware } from '../src/core/middleware/http-auth-middleware';
 import type { Request, Response, NextFunction } from 'express';
 
 describe('HTTP Authentication Middleware (US3: FR-3)', () => {

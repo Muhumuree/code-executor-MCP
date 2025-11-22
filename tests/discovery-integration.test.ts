@@ -9,9 +9,9 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { executeTypescriptInSandbox } from '../src/sandbox-executor.js';
+import { executeTypescriptInSandbox } from '../src/executors/sandbox-executor.js';
 import { MCPClientPool } from '../src/mcp-client-pool.js';
-import { initConfig } from '../src/config.js';
+import { initConfig } from '../src/config/loader.js';
 import type { SandboxOptions } from '../src/types.js';
 
 describe('Discovery Integration Tests', () => {

@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi, beforeAll } from 'vitest';
 import { SecurityValidator } from '../src/security.js';
-import { initConfig } from '../src/config.js';
+import { initConfig } from '../src/config/loader.js';
 import * as fs from 'fs/promises';
 
 // Mock fs for audit logging tests

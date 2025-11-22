@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { MCPProxyServer } from '../src/mcp-proxy-server.js';
+import { MCPProxyServer } from '../src/core/server/mcp-proxy-server.js';
 import type { MCPClientPool } from '../src/mcp-client-pool.js';
 import { MetricsExporter } from '../src/metrics-exporter.js';
 import * as http from 'http';

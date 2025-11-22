@@ -8,8 +8,8 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { ICircuitBreaker, CircuitBreakerState, CircuitBreakerStats } from '../src/interfaces/circuit-breaker';
-import { CircuitBreakerFactory } from '../src/circuit-breaker-factory';
+import type { ICircuitBreaker, CircuitBreakerState, CircuitBreakerStats } from '../src/security/circuit-breaker';
+import { CircuitBreakerFactory } from '../src/security/circuit-breaker-factory.js';
 
 describe('Circuit Breaker (US1: FR-1)', () => {
   describe('State Transitions (T010)', () => {

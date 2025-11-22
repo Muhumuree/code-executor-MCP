@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { correlationIdMiddleware } from '../src/correlation-id-middleware.js';
+import { correlationIdMiddleware } from '../src/core/middleware/correlation-id-middleware.js';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 describe('CorrelationIdMiddleware (US11: FR-14)', () => {

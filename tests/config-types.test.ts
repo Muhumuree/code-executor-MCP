@@ -7,8 +7,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getSamplingConfig } from '../src/config.js';
-import { SamplingConfigSchema, type SamplingConfig } from '../src/config-types.js';
+import { getSamplingConfig } from '../src/config/loader.js';
+import { SamplingConfigSchema, type SamplingConfig } from '../src/config/types.js';
 
 describe('Sampling Configuration Validation (FR-7)', () => {
   // Store original env vars

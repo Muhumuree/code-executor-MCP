@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ConnectionQueue } from '../src/connection-queue';
+import { ConnectionQueue } from '../src/mcp/connection-queue.js';
 
 describe('Connection Queue (US4: FR-4)', () => {
   let queue: ConnectionQueue;

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ConfigDiscoveryService } from '../src/config-discovery.js';
+import { ConfigDiscoveryService } from '../src/config/discovery.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { homedir } from 'os';

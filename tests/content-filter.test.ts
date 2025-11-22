@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ContentFilter } from '../src/security/content-filter';
+import { ContentFilter } from '../src/validation/content-filter';
 
 // Setup fake timers if needed for content filter tests
 beforeEach(() => {

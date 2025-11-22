@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { GracefulShutdownHandler } from '../src/graceful-shutdown-handler.js';
+import { GracefulShutdownHandler } from '../src/core/server/graceful-shutdown-handler.js';
 import type { Server } from 'http';
 
 describe('GracefulShutdownHandler (US10: FR-10)', () => {

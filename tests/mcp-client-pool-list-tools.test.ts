@@ -7,9 +7,9 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MCPClientPool } from '../src/mcp-client-pool.js';
-import { SchemaCache } from '../src/schema-cache.js';
+import { SchemaCache } from '../src/validation/schema-cache.js';
 import type { ToolSchema } from '../src/types/discovery.js';
-import type { CachedToolSchema } from '../src/schema-cache.js';
+import type { CachedToolSchema } from '../src/validation/schema-cache.js';
 
 describe('MCP Client Pool listAllToolSchemas() with SchemaCache', () => {
   let clientPool: MCPClientPool;

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ConnectionPool } from '../src/connection-pool.js';
+import { ConnectionPool } from '../src/mcp/connection-pool.js';
 
 describe('ConnectionPool', () => {
   let pool: ConnectionPool;
