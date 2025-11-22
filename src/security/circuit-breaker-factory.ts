@@ -27,7 +27,6 @@ import CircuitBreaker from 'opossum';
 import AsyncLock from 'async-lock';
 import type {
   ICircuitBreaker,
-  CircuitBreakerState,
   CircuitBreakerStats,
 } from './circuit-breaker.js';
 

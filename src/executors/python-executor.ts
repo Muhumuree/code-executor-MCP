@@ -8,6 +8,7 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as crypto from 'crypto';
+import { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { getPythonPath } from '../config/loader.js';
 import { sanitizeOutput, truncateOutput, formatDuration, normalizeError } from '../utils/utils.js';
 import { MCPProxyServer } from '../core/server/mcp-proxy-server.js';
@@ -67,7 +68,7 @@ exec(open('${userCodeFile}').read())
 export async function executePythonInSandbox(
   options: SandboxOptions,
   mcpClientPool: MCPClientPool,
-  _mcpServer?: any  // Optional MCP server for sampling (McpServer type from SDK) - not yet implemented
+  _mcpServer?: McpServer  // Optional MCP server for sampling - not yet implemented
 ): Promise<ExecutionResult> {
   const startTime = Date.now();
 

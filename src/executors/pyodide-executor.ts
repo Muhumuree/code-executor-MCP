@@ -15,6 +15,7 @@
  */
 
 import { loadPyodide, type PyodideInterface } from 'pyodide';
+import { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { MCPProxyServer } from '../core/server/mcp-proxy-server.js';
 import { StreamingProxy } from '../core/middleware/streaming-proxy.js';
 import { SamplingBridgeServer } from '../core/server/sampling-bridge-server.js';
@@ -81,7 +82,7 @@ async function getPyodide(): Promise<PyodideInterface> {
 export async function executePythonInSandbox(
   options: SandboxOptions,
   mcpClientPool: MCPClientPool,
-  mcpServer?: any  // Optional MCP server for sampling (McpServer type from SDK)
+  mcpServer?: McpServer  // Optional MCP server for sampling
 ): Promise<ExecutionResult> {
   const startTime = Date.now();
 
@@ -396,9 +397,6 @@ llm = LLM()
     console.error('✓ MCP tool access injected into Python environment');
 
     // Phase 2: Execute user code with timeout
-    let executionOutput = '';
-    let executionError = '';
-
     // Capture print() output
     await pyodide.runPythonAsync(`
 import sys

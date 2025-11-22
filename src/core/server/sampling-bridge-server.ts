@@ -146,11 +146,37 @@ const BRIDGE_REQUEST_SCHEMA = {
  * Sampling Bridge Server
  *
  * Ephemeral HTTP server that proxies LLM sampling requests from sandbox
- * to Claude API via MCP SDK. Implements security controls including:
+ * to LLM API via MCP SDK or direct provider API. Implements security controls including:
  * - Bearer token authentication
  * - Rate limiting (rounds and tokens)
  * - System prompt allowlist
  * - Content filtering for secrets/PII
+ * - AJV schema validation
+ *
+ * ## Lifecycle Design: Why Ephemeral?
+ *
+ * **Decision:** Bridge server is created per execution (ephemeral) vs. persistent across executions
+ *
+ * **Rationale:**
+ * 1. **Security Isolation** - Each execution gets fresh bearer token, preventing token reuse attacks
+ * 2. **Resource Cleanup** - Server automatically closed after execution, no leaked connections
+ * 3. **Rate Limit Isolation** - Per-execution quotas (maxRounds, maxTokens) enforced independently
+ * 4. **Stateless Design** - No shared state between executions, simpler reasoning about correctness
+ * 5. **Startup Cost Minimal** - Bridge server starts in <50ms (negligible overhead)
+ *
+ * **Trade-offs:**
+ * - ✅ Security: Fresh token per execution prevents cross-execution attacks
+ * - ✅ Simplicity: No connection pooling or lifecycle management needed
+ * - ✅ Isolation: Execution failures don't affect other executions
+ * - ⚠️ Performance: ~50ms overhead per execution (acceptable for sampling use case)
+ *
+ * **Alternative Considered:** Persistent server with connection pooling
+ * - Would require complex lifecycle management (start/stop/restart)
+ * - Token rotation mechanism needed for security
+ * - Shared rate limiter state across executions (more complex)
+ * - Minimal performance benefit (~50ms saved) doesn't justify complexity
+ *
+ * **Conclusion:** Ephemeral design chosen for security and simplicity at negligible performance cost
  */
 export class SamplingBridgeServer {
   private server: ReturnType<typeof createServer> | null = null;
@@ -584,7 +610,7 @@ export class SamplingBridgeServer {
       const model = body.model || defaultModels[this.config.provider] || 'claude-haiku-4-5-20251001';
 
       // Validate model is in allowlist
-      // TODO: Make allowedModels configurable per provider or generic
+      // TODO (#69): Make allowedModels configurable per provider or generic
       // For now, we skip strict model validation if provider is not Anthropic to allow flexibility
       if (this.config.provider === 'anthropic' && !this.config.allowedModels.includes(model)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });

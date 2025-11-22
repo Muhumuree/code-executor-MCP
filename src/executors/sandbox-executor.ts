@@ -8,6 +8,7 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as crypto from 'crypto';
+import { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { getDenoPath, getSamplingConfig } from '../config/loader.js';
 import { sanitizeOutput, truncateOutput, formatDuration, normalizeError } from '../utils/utils.js';
 import { MCPProxyServer } from '../core/server/mcp-proxy-server.js';
@@ -22,23 +23,12 @@ const DISCOVERY_TIMEOUT_MS = 500; // Discovery endpoint timeout (matches NFR-2 r
 const SANDBOX_MEMORY_LIMIT_MB = 128; // V8 heap limit to prevent memory exhaustion attacks
 
 /**
- * Normalize line endings to LF (Unix-style) for consistent hashing
- * Handles CRLF (Windows), CR (old Mac), and mixed line endings
- *
- * WHY: Filesystem may normalize line endings during write, causing
- * hash mismatches in integrity checks (TOCTOU vulnerability mitigation)
- */
-function normalizeLineEndings(text: string): string {
-  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-}
-
-/**
  * Execute TypeScript code in Deno sandbox with MCP access
  */
 export async function executeTypescriptInSandbox(
   options: SandboxOptions,
   mcpClientPool: MCPClientPool,
-  mcpServer?: any  // Optional MCP server for sampling (McpServer type from SDK)
+  mcpServer?: McpServer  // Optional MCP server for sampling
 ): Promise<ExecutionResult> {
   const startTime = Date.now();
 
@@ -140,7 +130,6 @@ export async function executeTypescriptInSandbox(
     // SEC-006 FIX: Hash original content BEFORE writing (eliminates TOCTOU race)
     // WHY: Re-reading file creates race window where attacker could modify file
     // NEW APPROACH: Hash original content, write atomically, execute immediately
-    const normalizedCode = normalizeLineEndings(options.code);
     // Hash verification removed - atomic write + immediate execution provides sufficient security
 
     // Write user code to temp file atomically (avoids eval() security violation)

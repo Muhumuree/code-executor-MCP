@@ -319,7 +319,7 @@ export class DailySyncService {
    *
    * **IMPLEMENTATION NOTE (Phase 9 MVP stub):**
    * - Current: Returns deterministic stub hash (testing only)
-   * - Phase 10 TODO: Integrate with MCPClientPool.discoverMCPTools()
+   * - Phase 10 TODO (#70): Integrate with MCPClientPool.discoverMCPTools()
    * - Algorithm:
    *   1. Call discoverMCPTools({ search: [mcpName] })
    *   2. Extract tools array, sort by name (deterministic order)
@@ -331,7 +331,7 @@ export class DailySyncService {
    * @returns Promise<string> SHA-256 hash of current schemas (hex string)
    */
   private async computeCurrentSchemaHash(mcpName: string): Promise<string> {
-    // TODO: Implement full schema fetching and hashing (see implementation note above)
+    // TODO (#70): Implement full schema fetching and hashing (see implementation note above)
     // For now, return a deterministic hash based on MCP name (stub)
     const hash = createHash('sha256');
     hash.update(`${mcpName}-stub-hash`);
@@ -348,7 +348,7 @@ export class DailySyncService {
    *
    * **IMPLEMENTATION NOTE (Phase 9 MVP stub):**
    * - Current: Always returns true (testing only)
-   * - Phase 10 TODO: Reconstruct MCPServerSelection from wrapper entry
+   * - Phase 10 TODO (#70): Reconstruct MCPServerSelection from wrapper entry
    * - Algorithm:
    *   1. Extract mcpName, language from wrapper entry
    *   2. Construct MCPServerSelection object (needs MCP config lookup)
@@ -360,7 +360,7 @@ export class DailySyncService {
    * @returns Promise<boolean> true if regeneration succeeded, false otherwise
    */
   private async regenerateWrapper(_wrapper: WrapperEntry): Promise<boolean> {
-    // TODO: Implement full wrapper regeneration (see implementation note above)
+    // TODO (#70): Implement full wrapper regeneration (see implementation note above)
     // For now, return success (stub)
     return true;
   }

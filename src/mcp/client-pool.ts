@@ -11,7 +11,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
-import { getMCPConfigPath, getPoolConfig } from '../config/loader.js';
+import { getPoolConfig } from '../config/loader.js';
 import { isValidMCPToolName, normalizeError, isErrnoException } from '../utils/utils.js';
 import type { MCPConfig, MCPServerConfig, ToolInfo, ProcessInfo, StdioServerConfig, HttpServerConfig } from '../types.js';
 import { isStdioConfig, isHttpConfig } from '../types.js';

@@ -33,7 +33,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🎉 Major Release - MCP Sampling (Beta)
 
-**Breaking Changes:** None (fully backward compatible)
+**Breaking Changes:** None for typical usage (MCP server binary)
+
+⚠️ **Internal Module Restructuring:** If you were importing internal modules directly (not recommended), import paths have changed:
+
+```typescript
+// ❌ OLD (v0.x) - Deep imports from internal modules
+import { SchemaCache } from 'code-executor-mcp/src/schema-cache.js';
+import { MCPProxyServer } from 'code-executor-mcp/src/mcp-proxy-server.js';
+import { ContentFilter } from 'code-executor-mcp/src/content-filter.js';
+
+// ✅ NEW (v1.0) - Organized directory structure
+import { SchemaCache } from 'code-executor-mcp/src/validation/schema-cache.js';
+import { MCPProxyServer } from 'code-executor-mcp/src/core/server/mcp-proxy-server.js';
+import { ContentFilter } from 'code-executor-mcp/src/validation/content-filter.js';
+```
+
+**Migration:** Update import paths to new directory structure:
+- `caching/` - Cache providers (SchemaCache, LRUCacheProvider, RedisCacheProvider)
+- `config/` - Configuration (loader, discovery, schemas, types)
+- `core/handlers/` - Request handlers (health check, metrics, tool execution)
+- `core/middleware/` - HTTP middleware (auth, streaming proxy)
+- `core/server/` - Server components (MCP proxy, sampling bridge, graceful shutdown)
+- `executors/` - Code executors (Deno, Pyodide, Python, sandbox)
+- `validation/` - Validators (AJV, content filter, security, network security)
+- `security/` - Security controls (rate limiter, circuit breaker)
+- `sampling/` - Sampling providers (Anthropic, OpenAI, Gemini, Grok, Perplexity)
+
+**Note:** Most users are unaffected - this package is primarily used as an MCP server binary (`npx code-executor-mcp`), not as a library. Only affects advanced users doing deep imports.
 
 ### Added
 
