@@ -1238,7 +1238,7 @@ export class CLIWizard {
     const response = await prompts({
       type: 'text',
       name: 'path',
-      message: kleur.bold('Path to project .mcp.json (optional, press Enter to skip):'),
+      message: kleur.bold('Path to project .mcp.json (e.g., ~/projects/your-project/.mcp.json, press Enter to skip):'),
       initial: '',
       validate: (value: string) => {
         // Empty is valid (skip)
