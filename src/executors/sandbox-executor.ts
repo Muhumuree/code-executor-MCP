@@ -369,7 +369,7 @@ globalThis.llm = {
       },
       body: JSON.stringify({
         messages: [{ role: 'user', content: prompt }],
-        model: 'claude-3-5-haiku-20241022',
+        // Let sampling bridge choose provider-specific model (Gemini, OpenAI, etc.)
         systemPrompt: options?.systemPrompt || '',
         maxTokens: options?.maxTokens || 1000,
         stream
@@ -415,7 +415,8 @@ globalThis.llm = {
       },
       body: JSON.stringify({
         messages: options.messages,
-        model: options.model || 'claude-3-5-haiku-20241022',
+        // Allow optional model override, otherwise let sampling bridge choose provider-specific model
+        ...(options.model && { model: options.model }),
         systemPrompt: options.systemPrompt || '',
         maxTokens: options.maxTokens || 1000,
         stream

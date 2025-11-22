@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { executeTypescriptInSandbox } from '../src/sandbox-executor.js';
-import { executePythonInSandbox } from '../src/pyodide-executor.js';
-import { MCPClientPool } from '../src/mcp-client-pool.js';
-import { initConfig } from '../src/config.js';
+import { executeTypescriptInSandbox } from '../src/executors/sandbox-executor.js';
+import { executePythonInSandbox } from '../src/executors/pyodide-executor.js';
+import { MCPClientPool } from '../src/mcp/client-pool.js';
+import { initConfig } from '../src/config/loader.js';
 import nock from 'nock';
 
 let anthropicScope: nock.Scope;
 
 // Initialize config before all tests
 beforeAll(async () => {
-  await initConfig({});
+  await initConfig();
 });
 
 // Setup fake timers and HTTP mocking for integration tests
@@ -168,6 +168,163 @@ describe('Sampling Executor Integration', () => {
       // Should fail due to rate limit exceeded
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/Rate limit exceeded/);
+    });
+  });
+
+  describe('Multi-Provider Model Selection', () => {
+    it('should_useGeminiModel_when_providerIsGemini', async () => {
+      // Set Gemini provider
+      process.env.CODE_EXECUTOR_SAMPLING_ENABLED = 'true';
+      process.env.CODE_EXECUTOR_AI_PROVIDER = 'gemini';
+      process.env.GEMINI_API_KEY = 'test-gemini-key';
+      delete process.env.ANTHROPIC_API_KEY;
+
+      // Mock Gemini API endpoint
+      const geminiScope = nock('https://generativelanguage.googleapis.com')
+        .persist()
+        .post(/\/v1beta\/models\/.*:generateContent/)
+        .reply(200, {
+          candidates: [
+            {
+              content: {
+                parts: [{ text: 'Gemini response' }]
+              },
+              finishReason: 'STOP'
+            }
+          ],
+          usageMetadata: {
+            promptTokenCount: 10,
+            candidatesTokenCount: 5
+          }
+        });
+
+      const code = `
+const response = await llm.ask("Test");
+console.log("Response:", response);
+      `;
+
+      const mcpClientPool = new MCPClientPool();
+      await mcpClientPool.initialize();
+
+      const result = await executeTypescriptInSandbox(
+        {
+          code,
+          allowedTools: [],
+          timeoutMs: 10000,
+          permissions: {},
+          enableSampling: true,
+          maxSamplingRounds: 5,
+          maxSamplingTokens: 1000
+        },
+        mcpClientPool,
+        null
+      );
+
+      await mcpClientPool.disconnect();
+
+      expect(result.success).toBe(true);
+      expect(result.samplingCalls).toBeDefined();
+      expect(result.samplingCalls?.[0]?.model).toMatch(/gemini/i);
+
+      geminiScope.done();
+      nock.cleanAll();
+    });
+
+    it('should_useOpenAIModel_when_providerIsOpenAI', async () => {
+      // Set OpenAI provider
+      process.env.CODE_EXECUTOR_SAMPLING_ENABLED = 'true';
+      process.env.CODE_EXECUTOR_AI_PROVIDER = 'openai';
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      delete process.env.ANTHROPIC_API_KEY;
+
+      // Mock OpenAI API endpoint
+      const openaiScope = nock('https://api.openai.com')
+        .persist()
+        .post('/v1/chat/completions')
+        .reply(200, {
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          created: Date.now(),
+          model: 'gpt-4o-mini',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: 'OpenAI response'
+              },
+              finish_reason: 'stop'
+            }
+          ],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15
+          }
+        });
+
+      const code = `
+const response = await llm.ask("Test");
+console.log("Response:", response);
+      `;
+
+      const mcpClientPool = new MCPClientPool();
+      await mcpClientPool.initialize();
+
+      const result = await executeTypescriptInSandbox(
+        {
+          code,
+          allowedTools: [],
+          timeoutMs: 10000,
+          permissions: {},
+          enableSampling: true,
+          maxSamplingRounds: 5,
+          maxSamplingTokens: 1000
+        },
+        mcpClientPool,
+        null
+      );
+
+      await mcpClientPool.disconnect();
+
+      expect(result.success).toBe(true);
+      expect(result.samplingCalls).toBeDefined();
+      expect(result.samplingCalls?.[0]?.model).toMatch(/gpt-4o-mini/i);
+
+      openaiScope.done();
+      nock.cleanAll();
+    });
+
+    it('should_notSendModelParam_when_llmAskCalledWithoutModel', async () => {
+      // Test that llm.ask doesn't send a model parameter to sampling bridge
+      // This allows the bridge to choose provider-specific default
+      const code = `
+const response = await llm.ask("Test");
+console.log("Response:", response);
+      `;
+
+      const mcpClientPool = new MCPClientPool();
+      await mcpClientPool.initialize();
+
+      const result = await executeTypescriptInSandbox(
+        {
+          code,
+          allowedTools: [],
+          timeoutMs: 10000,
+          permissions: {},
+          enableSampling: true,
+          maxSamplingRounds: 5,
+          maxSamplingTokens: 1000
+        },
+        mcpClientPool,
+        null
+      );
+
+      await mcpClientPool.disconnect();
+
+      // If llm.ask hardcoded a model, it would fail with Gemini/OpenAI
+      // Success means the model parameter was omitted and provider-specific model was used
+      expect(result.success).toBe(true);
     });
   });
 

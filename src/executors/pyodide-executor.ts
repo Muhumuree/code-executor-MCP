@@ -324,7 +324,7 @@ class LLM:
             },
             body=json.dumps({
                 'messages': [{'role': 'user', 'content': prompt}],
-                'model': 'claude-3-5-haiku-20241022',
+                # Let sampling bridge choose provider-specific model (Gemini, OpenAI, etc.)
                 'systemPrompt': system_prompt,
                 'maxTokens': max_tokens,
                 'stream': False  # Always False for Pyodide
@@ -340,14 +340,14 @@ class LLM:
         result = await response.json()
         return result.get('response', '')
 
-    async def think(self, messages: list, model: str = 'claude-3-5-haiku-20241022',
+    async def think(self, messages: list, model: str = None,
                    max_tokens: int = 1000, system_prompt: str = ''):
         """
         Multi-turn conversation - supports message history
 
         Args:
             messages: List of message dicts with 'role' and 'content' keys
-            model: Model to use (default: claude-3-5-haiku-20241022)
+            model: Model to use (optional, sampling bridge chooses provider-specific model if not set)
             max_tokens: Maximum tokens to generate (default: 1000)
             system_prompt: Optional system prompt
 
@@ -360,6 +360,16 @@ class LLM:
         if not SAMPLING_ENABLED:
             raise Exception('Sampling not enabled. Pass enableSampling=True to executor options')
 
+        # Build request body - only include model if specified
+        request_body = {
+            'messages': messages,
+            'systemPrompt': system_prompt,
+            'maxTokens': max_tokens,
+            'stream': False  # Always False for Pyodide
+        }
+        if model is not None:
+            request_body['model'] = model
+
         response = await pyfetch(
             f'http://{SAMPLING_HOSTNAME}:{SAMPLING_PORT}/sample',
             method='POST',
@@ -367,13 +377,7 @@ class LLM:
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {SAMPLING_TOKEN}'
             },
-            body=json.dumps({
-                'messages': messages,
-                'model': model,
-                'systemPrompt': system_prompt,
-                'maxTokens': max_tokens,
-                'stream': False  # Always False for Pyodide
-            })
+            body=json.dumps(request_body)
         )
 
         if response.status != 200:
