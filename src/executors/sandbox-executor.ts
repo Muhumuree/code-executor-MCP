@@ -14,7 +14,7 @@ import { MCPProxyServer } from '../core/server/mcp-proxy-server.js';
 import { StreamingProxy } from '../core/middleware/streaming-proxy.js';
 import { SamplingBridgeServer } from '../core/server/sampling-bridge-server.js';
 import { getBridgeHostname } from '../utils/docker-detection.js';
-import type { ExecutionResult, SandboxOptions, SamplingConfig, LLMResponse } from '../types.js';
+import type { ExecutionResult, SandboxOptions, SamplingConfig } from '../types.js';
 import type { MCPClientPool } from '../mcp/client-pool.js';
 
 // Configuration constants
@@ -141,7 +141,7 @@ export async function executeTypescriptInSandbox(
     // WHY: Re-reading file creates race window where attacker could modify file
     // NEW APPROACH: Hash original content, write atomically, execute immediately
     const normalizedCode = normalizeLineEndings(options.code);
-    const expectedHash = crypto.createHash('sha256').update(normalizedCode).digest('hex');
+    // Hash verification removed - atomic write + immediate execution provides sufficient security
 
     // Write user code to temp file atomically (avoids eval() security violation)
     await fs.writeFile(userCodeFile, options.code, 'utf-8');

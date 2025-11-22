@@ -90,3 +90,13 @@ docs/discovery-implementation-analysis.md
 .specify/templates/spec-template.md
 .specify/templates/tasks-template.md
 docs/release-workflow.md
+
+# Temporary sampling investigation files
+FREE-SAMPLING-VIA-CLI-SPAWN.md
+IMPLEMENT-FREE-SAMPLING.md
+QUICK-CLI-SAMPLING-IMPL.md
+QUICK-FIX-GUIDE.md
+WORKAROUND.md
+SAMPLING-FIXES-FROM-ZEN-MCP.md
+SAMPLING-VIA-HOST-CLIENT.md
+config.example.json
