@@ -36,10 +36,10 @@ import type { ExecutionResult, ToolCallSummaryEntry } from 'code-executor-mcp';
  *
  * Tool: {{this.name}}
  *
- {{#if this.parameters.properties}}
+ {{#if this.inputSchema.properties}}
  * Parameters:
- {{#each this.parameters.properties}}
- * @param {{@key}}{{#if this.description}} - {{this.description}}{{/if}}{{#if (lookup ../this.parameters.required @key)}} (required){{/if}}
+ {{#each this.inputSchema.properties}}
+ * @param {{@key}}{{#if this.description}} - {{this.description}}{{/if}}{{#if (lookup ../this.inputSchema.required @key)}} (required){{/if}}
  {{/each}}
  {{/if}}
  *
@@ -48,8 +48,8 @@ import type { ExecutionResult, ToolCallSummaryEntry } from 'code-executor-mcp';
  * @example
  * ```typescript
  * const result = await {{../mcpName}}_{{camelCase this.name}}({
- {{#if this.parameters.properties}}
- {{#each this.parameters.properties}}
+ {{#if this.inputSchema.properties}}
+ {{#each this.inputSchema.properties}}
  *   {{@key}}: {{#if (eq this.type "string")}}'example'{{else if (eq this.type "number")}}123{{else if (eq this.type "boolean")}}true{{else if (eq this.type "array")}}[]{{else}}{}{{/if}},
  {{/each}}
  {{/if}}
@@ -59,8 +59,8 @@ import type { ExecutionResult, ToolCallSummaryEntry } from 'code-executor-mcp';
  */
 export async function {{../mcpName}}_{{camelCase this.name}}(
   params: {
-    {{#each this.parameters.properties}}
-    {{@key}}{{#unless (lookup ../this.parameters.required @key)}}?{{/unless}}: {{tsType this.type}};
+    {{#each this.inputSchema.properties}}
+    {{@key}}{{#unless (lookup ../this.inputSchema.required @key)}}?{{/unless}}: {{tsType this.type}};
     {{/each}}
   }
 ): Promise<ExecutionResult> {
@@ -109,8 +109,8 @@ export async function {{../mcpName}}_{{camelCase this.name}}(
 export namespace {{pascalCase mcpName}} {
   {{#each tools}}
   export interface {{pascalCase this.name}}Params {
-    {{#each this.parameters.properties}}
-    {{@key}}{{#unless (lookup ../this.parameters.required @key)}}?{{/unless}}: {{tsType this.type}};
+    {{#each this.inputSchema.properties}}
+    {{@key}}{{#unless (lookup ../this.inputSchema.required @key)}}?{{/unless}}: {{tsType this.type}};
     {{/each}}
   }
 

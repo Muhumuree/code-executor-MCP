@@ -100,9 +100,9 @@ console.log(JSON.stringify(result));
     {{#each tools}}
     def {{snakeCase (camelCase this.name)}}(
         self,
-        {{#if this.parameters.properties}}
-        {{#each this.parameters.properties}}
-        {{snakeCase @key}}: {{pythonType this.type}}{{#unless (lookup ../this.parameters.required @key)}} = None{{/unless}},
+        {{#if this.inputSchema.properties}}
+        {{#each this.inputSchema.properties}}
+        {{snakeCase @key}}: {{pythonType this.type}}{{#unless (lookup ../this.inputSchema.required @key)}} = None{{/unless}},
         {{/each}}
         {{/if}}
     ) -> ExecutionResult:
@@ -111,10 +111,10 @@ console.log(JSON.stringify(result));
 
         Tool: {{this.name}}
 
-        {{#if this.parameters.properties}}
+        {{#if this.inputSchema.properties}}
         Args:
-        {{#each this.parameters.properties}}
-            {{snakeCase @key}}: {{#if this.description}}{{this.description}}{{else}}{{this.type}} parameter{{/if}}{{#if (lookup ../this.parameters.required @key)}} (required){{/if}}
+        {{#each this.inputSchema.properties}}
+            {{snakeCase @key}}: {{#if this.description}}{{this.description}}{{else}}{{this.type}} parameter{{/if}}{{#if (lookup ../this.inputSchema.required @key)}} (required){{/if}}
         {{/each}}
         {{/if}}
 
@@ -124,8 +124,8 @@ console.log(JSON.stringify(result));
         Example:
             >>> client = {{pascalCase ../mcpName}}Client()
             >>> result = client.{{snakeCase (camelCase this.name)}}(
-            {{#if this.parameters.properties}}
-            {{#each this.parameters.properties}}
+            {{#if this.inputSchema.properties}}
+            {{#each this.inputSchema.properties}}
             ...     {{snakeCase @key}}={{#if (eq this.type "string")}}'example'{{else if (eq this.type "number")}}123{{else if (eq this.type "boolean")}}True{{else if (eq this.type "array")}}[]{{else}}{}{{/if}},
             {{/each}}
             {{/if}}
@@ -133,7 +133,7 @@ console.log(JSON.stringify(result));
             >>> print(result['output'])
         """
         params = {
-            {{#each this.parameters.properties}}
+            {{#each this.inputSchema.properties}}
             '{{@key}}': {{snakeCase @key}},
             {{/each}}
         }
@@ -149,9 +149,9 @@ console.log(JSON.stringify(result));
 # Convenience functions for direct usage
 {{#each tools}}
 def {{snakeCase (camelCase this.name)}}(
-    {{#if this.parameters.properties}}
-    {{#each this.parameters.properties}}
-    {{snakeCase @key}}: {{pythonType this.type}}{{#unless (lookup ../this.parameters.required @key)}} = None{{/unless}},
+    {{#if this.inputSchema.properties}}
+    {{#each this.inputSchema.properties}}
+    {{snakeCase @key}}: {{pythonType this.type}}{{#unless (lookup ../this.inputSchema.required @key)}} = None{{/unless}},
     {{/each}}
     {{/if}}
     proxy_url: Optional[str] = None,
@@ -162,10 +162,10 @@ def {{snakeCase (camelCase this.name)}}(
 
     {{this.description}}
 
-    {{#if this.parameters.properties}}
+    {{#if this.inputSchema.properties}}
     Args:
-    {{#each this.parameters.properties}}
-        {{snakeCase @key}}: {{#if this.description}}{{this.description}}{{else}}{{this.type}} parameter{{/if}}{{#if (lookup ../this.parameters.required @key)}} (required){{/if}}
+    {{#each this.inputSchema.properties}}
+        {{snakeCase @key}}: {{#if this.description}}{{this.description}}{{else}}{{this.type}} parameter{{/if}}{{#if (lookup ../this.inputSchema.required @key)}} (required){{/if}}
     {{/each}}
     {{/if}}
         proxy_url: URL of code-executor-mcp proxy server
@@ -181,7 +181,7 @@ def {{snakeCase (camelCase this.name)}}(
     """
     client = {{pascalCase ../mcpName}}Client(proxy_url, auth_token)
     return client.{{snakeCase (camelCase this.name)}}(
-        {{#each this.parameters.properties}}
+        {{#each this.inputSchema.properties}}
         {{snakeCase @key}}={{snakeCase @key}},
         {{/each}}
     )
