@@ -301,6 +301,40 @@ export class ConfigDiscoveryService {
       result.mcpConfigPath = process.env.MCP_CONFIG_PATH;
     }
 
+    // Sampling configuration env vars
+    if (process.env.CODE_EXECUTOR_SAMPLING_ENABLED || process.env.CODE_EXECUTOR_AI_PROVIDER ||
+        process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY ||
+        process.env.GROK_API_KEY || process.env.PERPLEXITY_API_KEY) {
+      if (!result.sampling) result.sampling = {};
+
+      if (process.env.CODE_EXECUTOR_SAMPLING_ENABLED) {
+        result.sampling.enabled = process.env.CODE_EXECUTOR_SAMPLING_ENABLED === 'true';
+      }
+
+      if (process.env.CODE_EXECUTOR_AI_PROVIDER) {
+        result.sampling.provider = process.env.CODE_EXECUTOR_AI_PROVIDER as any;
+      }
+
+      // API Keys
+      if (!result.sampling.apiKeys) result.sampling.apiKeys = {};
+
+      if (process.env.ANTHROPIC_API_KEY) {
+        result.sampling.apiKeys.anthropic = process.env.ANTHROPIC_API_KEY;
+      }
+      if (process.env.OPENAI_API_KEY) {
+        result.sampling.apiKeys.openai = process.env.OPENAI_API_KEY;
+      }
+      if (process.env.GEMINI_API_KEY) {
+        result.sampling.apiKeys.gemini = process.env.GEMINI_API_KEY;
+      }
+      if (process.env.GROK_API_KEY) {
+        result.sampling.apiKeys.grok = process.env.GROK_API_KEY;
+      }
+      if (process.env.PERPLEXITY_API_KEY) {
+        result.sampling.apiKeys.perplexity = process.env.PERPLEXITY_API_KEY;
+      }
+    }
+
     return result;
   }
 
