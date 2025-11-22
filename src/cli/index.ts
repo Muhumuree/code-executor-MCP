@@ -228,6 +228,7 @@ async function main(): Promise<void> {
       } else {
         // Step 12: Generate wrappers (FR-7)
         console.log('\n📝 Generating wrappers...\n');
+
         const result = await wizard.generateWrappersWithProgress(
           languageSelections,
           'esm',

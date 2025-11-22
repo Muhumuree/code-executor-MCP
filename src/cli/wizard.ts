@@ -13,9 +13,11 @@ import kleur from 'kleur';
 import ora, { type Ora } from 'ora';
 import * as path from 'path';
 import * as os from 'os';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { ToolDetector } from './tool-detector.js';
 import { getSupportedToolsForPlatform, type AIToolMetadata } from './tool-registry.js';
-import type { SetupConfig, MCPServerStatusResult, LanguageSelection, WrapperLanguage, MCPServerSelection } from './types.js';
+import type { SetupConfig, MCPServerStatusResult, LanguageSelection, WrapperLanguage, MCPServerSelection, ToolSchema, MCPServerConfig } from './types.js';
 import { setupConfigSchema } from './schemas/setup-config.schema.js';
 import type { WrapperGenerator } from './wrapper-generator.js';
 import { LockFileService } from '../services/lock-file.js';
@@ -482,6 +484,57 @@ export class CLIWizard {
   }
 
   /**
+   * Fetch tool schemas from a running MCP server
+   *
+   * **RESPONSIBILITY (SRP):** Connect to MCP server and retrieve tool schemas
+   * **WHY:** Enables wrapper generation with actual tools instead of empty skeletons
+   * **RESILIENCE:** Returns empty array on failure (graceful degradation)
+   *
+   * @param server - MCP server configuration (command, args, env)
+   * @returns Array of tool schemas (empty on failure)
+   *
+   * **PERFORMANCE:** ~100-500ms per server (STDIO startup + listTools RPC)
+   * **ERROR HANDLING:** Logs warning on failure, returns empty array (doesn't throw)
+   */
+  private async fetchToolsForServer(server: MCPServerConfig): Promise<ToolSchema[]> {
+    const client = new Client(
+      { name: 'wizard-tool-fetcher', version: '1.0.0' },
+      { capabilities: {} }
+    );
+
+    const transport = new StdioClientTransport({
+      command: server.command,
+      args: server.args || [],
+      env: {
+        ...(process.env as Record<string, string>),
+        ...(server.env || {})
+      }
+    });
+
+    try {
+      await client.connect(transport);
+      const response = await client.listTools();
+
+      return response.tools.map(tool => ({
+        name: `mcp__${server.name}__${tool.name}`,
+        description: tool.description || '',
+        parameters: tool.inputSchema as {
+          type: 'object';
+          properties: Record<string, any>;
+          required?: string[];
+        }
+      }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠️  Failed to fetch tools from ${server.name}: ${errorMessage}`);
+      console.warn(`   Generating skeleton wrapper (regenerate after starting server)`);
+      return [];
+    } finally {
+      await client.close();
+    }
+  }
+
+  /**
    * Generate wrappers with progress tracking
    *
    * **RESPONSIBILITY (SRP):** Orchestrate wrapper generation with UI feedback
@@ -532,33 +585,32 @@ export class CLIWizard {
 
       for (const lang of languages) {
         currentTask++;
-        progressBar.update(currentTask, { task: `${server.name} (${lang})` });
+
+        // ✅ FIX: Fetch tools from running MCP server
+        let tools: ToolSchema[] = [];
+        try {
+          progressBar.update(currentTask, { task: `Fetching tools from ${server.name}...` });
+          tools = await this.fetchToolsForServer(server);
+
+          if (tools.length > 0) {
+            progressBar.update(currentTask, { task: `${server.name} [${lang}] (${tools.length} tools)` });
+          } else {
+            progressBar.update(currentTask, { task: `${server.name} [${lang}] (skeleton - no tools)` });
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          progressBar.update(currentTask, { task: `${server.name} [${lang}] (failed: ${errorMessage})` });
+        }
 
         try {
-          // Convert MCPServerConfig to MCPServerSelection for WrapperGenerator
-          //
-          // **WHY HARDCODED VALUES ARE SAFE:**
-          // WrapperGenerator.generateWrapper() only uses:
-          //   - name (required): Passed from server.name
-          //   - tools (optional): Fetched by generator if undefined
-          //
-          // Unused fields (safe to mock):
-          //   - type, status, toolCount, sourceConfig: Not accessed by generator
-          //
-          // **ARCHITECTURE NOTE:** LanguageSelection uses MCPServerConfig (from selectLanguagePerMCP),
-          // but WrapperGenerator requires MCPServerSelection (superset with metadata).
-          // Since metadata fields aren't used for generation, hardcoded defaults are acceptable.
-          //
-          // **FUTURE:** If WrapperGenerator needs real metadata, pass MCPServerStatusResult
-          // instead of MCPServerConfig in LanguageSelection.
           const mcpForGeneration: MCPServerSelection = {
             name: server.name,
             description: undefined,
-            type: 'STDIO' as const, // Not used by generator
-            status: 'online' as const, // Not used by generator
-            toolCount: 0, // Not used by generator
-            sourceConfig: '', // Not used by generator
-            tools: undefined, // WrapperGenerator fetches if missing
+            type: 'STDIO' as const,
+            status: 'online' as const,
+            toolCount: tools.length,  // ✅ FIX: Real tool count
+            sourceConfig: '',
+            tools: tools.length > 0 ? tools : undefined  // ✅ FIX: Real tools or undefined
           };
 
           const result = await this.wrapperGenerator.generateWrapper(mcpForGeneration, lang, moduleFormat, regenOption);
