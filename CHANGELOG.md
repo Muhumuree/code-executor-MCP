@@ -7,27 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+## [1.0.1] - 2025-11-22
+
+### 🚀 Phase 10: Daily Sync Scheduler Integration
+
+**Automated MCP wrapper synchronization with platform-native schedulers**
+
+#### Added
+
+- **Daily Sync Scheduler** - Automated wrapper regeneration based on schema hash changes
+  - Platform-native scheduler integration (systemd timers on Linux, launchd on macOS, Task Scheduler on Windows)
+  - Incremental updates: Only regenerates wrappers when MCP schemas change (SHA-256 hash comparison)
+  - CLI wizard now installs and configures daily sync timers during setup
+  - Manual sync command: `npm run sync-wrappers` or `npx code-executor-mcp sync-wrappers`
+  - Files: `src/cli/sync-wrappers-cli.ts`, `src/cli/index.ts:266-310`
+
+- **Phase 10 Implementation** - Full MCP wrapper synchronization (#70)
+  - `DailySyncService.computeCurrentSchemaHash()` - Fetches tools from MCPClientPool and computes SHA-256 hash
+  - `DailySyncService.regenerateWrapper()` - Reconstructs MCPServerSelection and regenerates wrappers
+  - Constructor simplified: Single injection point via `options.wrapperGenerator` (no dual injection)
+  - Integration with MCPClientPool and SchemaCache for real-time schema fetching
+  - File: `src/cli/daily-sync.ts`
+
+- **Integration Tests** - 21 new tests (100% pass rate)
+  - 14 scheduler integration tests (`tests/cli/scheduler-integration.test.ts`)
+    - Platform detection (Linux, macOS, Windows, unsupported)
+    - Input validation (scriptPath, syncTime, timerName)
+    - Security tests (path traversal, command injection prevention)
+  - 7 sync-wrappers CLI tests (`tests/cli/sync-wrappers-cli.test.ts`)
+    - SchemaCache constructor validation (positional parameters)
+    - MCPClientPool and WrapperGenerator integration
+    - Error handling and manifest management
+
+#### Fixed
+
+- **Security Enhancements** - Tool allowlisting and provider-specific model restrictions (#51, #69)
+  - Server-level tool allowlist validation before execution
+  - Requested tools validated against `security.allowedTools` config
+  - Provider-specific model allowlists (`CODE_EXECUTOR_ALLOWED_MODELS_GEMINI`, `CODE_EXECUTOR_ALLOWED_MODELS_OPENAI`)
+  - Denies execution with clear error message if tools not on allowlist
+  - Files: `src/config/loader.ts`, `src/config/types.ts`, `src/executors/sandbox-executor.ts`
+  - Tests: `tests/security-fixes.test.ts` (11 tests), `tests/issue-69.test.ts` (4 tests)
+
+- **Redis Cache Stability** - Graceful disconnect handling
+  - No longer throws on disconnect - uses Promise.allSettled() instead of Promise.all()
+  - Prevents "Redis connection is not open" errors during shutdown
+  - File: `src/caching/redis-cache-provider.ts:215-227`
+
+- **MCP Client Pool** - Enhanced error handling for connection failures
+  - Non-blocking failure reporting during initialization
+  - Continues with partial MCP server availability
+  - File: `src/mcp/client-pool.ts`
+
+- **Health Check Endpoint** - Fixed typo in endpoint path
+  - Changed from `/helth` to `/health`
+  - File: `src/core/server/health-check.ts:18`
+
+- **Sampling Detection** - Fixed sampling capability detection
+  - Uses `createMessage()` method instead of `request()`
+  - File: `src/core/server/sampling-bridge-server.ts`
 
 - **Hybrid Sampling Fallback** - Fixed provider initialization in MCP sampling mode
-  - **Description**: LLM provider was not initialized in MCP sampling mode, causing fallback failures
-  - **Root Cause**: Provider creation was conditionally skipped if `samplingMode` wasn't `'direct'`
-  - **Solution**: Constructor now unconditionally initializes the LLM provider in `SamplingBridgeServer`
-  - **Impact**: Enables hybrid MCP/direct sampling, allowing fallback to direct API when MCP sampling fails
-  - **File**: `src/core/server/sampling-bridge-server.ts:228-245`
-  - Fixes error: "MCP sampling unavailable and no gemini API key configured"
+  - LLM provider now initialized unconditionally in `SamplingBridgeServer` constructor
+  - Enables hybrid MCP/direct sampling with proper fallback
+  - File: `src/core/server/sampling-bridge-server.ts:228-245`
 
-- **MCP Sampling Detection** - Fixed sampling capability detection to use `createMessage()` method instead of `request()`
-  - Root cause: Sampling bridge was checking for `request()` method, but MCP SDK uses `createMessage()` for LLM sampling
-  - Updated detection in `sandbox-executor.ts`, `pyodide-executor.ts`, and `sampling-bridge-server.ts`
-  - Fixes error: "Sampling enabled but no MCP server available and ANTHROPIC_API_KEY not set"
-  - All 25 sampling bridge tests passing
+#### Changed
 
-### Added
+- **CLI Wizard UX** - Added example to `.mcp.json` path prompt
+  - Prompt now shows: `Path to project .mcp.json (e.g., ~/projects/your-project/.mcp.json, press Enter to skip):`
+  - Helps users understand expected input format
+  - File: `src/cli/wizard.ts:1241`
 
-- **Enhanced Error Logging** - Added detailed error logging to `GeminiProvider` for better debugging
-  - Logs API errors, model names, and full error details to console
-  - Helps diagnose API key issues, model availability, and quota limits
+- **DailySyncService Constructor** - Simplified dependency injection
+  - Removed dual injection (constructor parameter + options parameter)
+  - Now uses single injection point: `options.wrapperGenerator`
+  - Cleaner API, less confusion
+  - File: `src/cli/daily-sync.ts:125-145`
 
 ## [1.0.0] - 2025-01-20
 
