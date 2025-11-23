@@ -18,6 +18,8 @@ import os from 'os';
 import { detectMCPConfigLocation, writeMCPConfig, readOrCreateMCPConfig } from './config-location-detector.js';
 import { generateCompleteConfig } from './templates/mcp-config-template.js';
 import prompts from 'prompts';
+import { fileURLToPath } from 'url';
+import { promises as fs } from 'fs';
 
 /**
  * Main CLI entry point
@@ -31,11 +33,14 @@ async function main(): Promise<void> {
     const installer = new SelfInstaller();
     await installer.runBootstrap();
 
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+
     // Step 2: Initialize components
     const toolDetector = new ToolDetector();
     const wrapperGenerator = new WrapperGenerator({
       outputDir: path.join(os.homedir(), '.code-executor', 'wrappers'),
-      templateDir: path.join(process.cwd(), 'templates'),
+      templateDir: path.join(__dirname, '..', '..', 'templates'),
       manifestPath: path.join(os.homedir(), '.code-executor', 'wrapper-manifest.json'),
     });
 
@@ -285,14 +290,20 @@ async function main(): Promise<void> {
             // Determine script path based on global vs local installation
             // Global: use npx code-executor-mcp sync-wrappers
             // Local: use npm run sync-wrappers
-            const scriptPath = process.env.npm_config_global === 'true'
+            const scriptCommand = process.env.npm_config_global === 'true'
               ? 'npx code-executor-mcp sync-wrappers'
               : 'npm run sync-wrappers';
+
+            // Write wrapper script to an absolute path to satisfy scheduler validation
+            const codeExecutorDir = path.join(os.homedir(), '.code-executor');
+            const wrapperScriptPath = path.join(codeExecutorDir, 'daily-sync.sh');
+            await fs.mkdir(codeExecutorDir, { recursive: true });
+            await fs.writeFile(wrapperScriptPath, `#!/bin/bash\n${scriptCommand}\n`, { mode: 0o755 });
 
             console.log(wizard.formatMessage('info', 'Installing daily sync timer...'));
 
             // Install the scheduler (creates systemd timer, launchd plist, or Windows task)
-            await scheduler.install(scriptPath, dailySyncConfig.syncTime);
+            await scheduler.install(wrapperScriptPath, dailySyncConfig.syncTime);
 
             console.log(
               wizard.formatMessage('success', `Daily sync scheduled for ${dailySyncConfig.syncTime}`)

@@ -351,8 +351,8 @@ export class DailySyncService {
    * @returns CLIToolSchema Tool schema compatible with WrapperGenerator
    */
   private convertToCLIToolSchema(discoveryTool: DiscoveryToolSchema): CLIToolSchema {
-    // Extract parameters as object, defaulting to empty if not present
-    const params = discoveryTool.parameters || {};
+    // Extract inputSchema as object, defaulting to empty if not present
+    const params = discoveryTool.inputSchema || {};
 
     // Type guard: Check if params has properties and required fields
     const hasProperties = typeof params === 'object' && params !== null && 'properties' in params;

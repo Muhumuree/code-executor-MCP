@@ -13,6 +13,7 @@ import { SchemaCache } from '../validation/schema-cache.js';
 import { WrapperGenerator } from './wrapper-generator.js';
 import * as path from 'path';
 import * as os from 'os';
+import { fileURLToPath } from 'url';
 
 /**
  * Main entry point for daily sync CLI
@@ -21,10 +22,13 @@ async function main(): Promise<void> {
   try {
     console.log('🔄 Starting daily wrapper sync...\n');
 
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+
     const codeExecutorDir = path.join(os.homedir(), '.code-executor');
     const manifestPath = path.join(codeExecutorDir, 'wrapper-manifest.json');
     const wrapperOutputDir = path.join(codeExecutorDir, 'wrappers');
-    const templateDir = path.join(process.cwd(), 'templates');
+    const templateDir = path.join(__dirname, '..', '..', 'templates');
 
     // Initialize MCP Client Pool
     const pool = new MCPClientPool();
