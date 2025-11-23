@@ -5,4 +5,4 @@
  * This should match the version in package.json.
  */
 
-export const VERSION = '0.4.2';
+export const VERSION = '1.0.5';
